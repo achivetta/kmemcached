@@ -5,15 +5,14 @@ by Anthony Chivetta <anthony@chivetta.org>
 Introduction
 ------------
 
-This is an implementation of a memcached server as a Linux kernel module.
-Memcached is an in-memory key/value cache service used by nearly all large
-websites to cache their data.  (See http://memcached.org/ for more information
-about memcached.)  Memcached's use case means that it is highly
-latency-sensitive.  Further, the dumb nature of the cache means that very little
-of the time spent servicing a request is spent doing business processing.  These
-two factors make memcached a prime candidate to move into the kernel as a means
-of removing sources of latency and experimenting with different techniques for
-servicing requests.
+This is an implementation of a [memcached](http://memcached.org "Memcached")
+server as a Linux kernel module.  Memcached is an in-memory key/value cache
+service used by nearly all large websites to cache their data.  Memcached's use
+case means that it is highly latency-sensitive.  Further, the dumb nature of the
+cache means that very little of the time spent servicing a request is spent
+doing business processing.  These two factors make memcached a prime candidate
+to move into the kernel as a means of removing sources of latency and
+experimenting with different techniques for servicing requests.
 
 Usually, in-kernel servers are considered a Bad Thing.  On the security front,
 if there exists a vulnerability in an in-kernel server this vulnerability would
@@ -45,10 +44,10 @@ provides dispatch for client work.  You should start here to get a feel for the
 code.  All code in this file is original to the project.
 
 libmemcachedprotocol: The folder `libmp/` contains the library used to parse
-incoming memcached requests.  It was taken from the libmemcached
-(libmemcached.org) library and modified to run in the kernel.  The file
-`protocol_handler.c` contains the default_send and default_recv functions which
-write to a kernel socket and may be of interest.
+incoming memcached requests.  It was taken from the 
+[libmemcached](libmemcached.org "libMemcached") library and modified to run in
+the kernel.  The file `protocol_handler.c` contains the default_send and
+default_recv functions which write to a kernel socket and may be of interest.
 
 Memcached Logic: The file `interface.c` contains the implementation of the
 memcached business logic.  This is also pulled from the libmemcached source.
