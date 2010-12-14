@@ -1,0 +1,14 @@
+Installation Instructions
+=========================
+
+1. Get a linux kernel source tree and ensure that you are running a kernel
+compiled from it.
+
+2. Run `export KERNEL_TREE=<PATH TO LINUX SOURCE>`
+
+3. Run `make`
+
+3. Run `insmod kmemcached.ko`
+
+4. Look at your kernel log to ensure the service started successfully and, if
+so, play!
