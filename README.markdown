@@ -5,8 +5,7 @@ by [Anthony Chivetta](http://chivetta.org)
 Background
 ------------
 
-This is an implementation of a [memcached](http://memcached.org "Memcached")
-server as a Linux kernel module.  Memcached is an in-memory key/value cache
+[Memcached](http://memcached.org "Memcached") is an in-memory key/value cache
 service used by nearly all large websites as a lookaside cache to scale their
 authoritative database.  It supports simple operations such as `GET`, `SET`,
 `PUT`, `INCREMENT`, etc. on a in-memory hash table of key/value pairs.
