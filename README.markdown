@@ -1,37 +1,47 @@
 kmemcached - a Linux Kernel Memcached
 ================
-by Anthony Chivetta <anthony@chivetta.org>
+by [Anthony Chivetta](http://chivetta.org)
 
-Introduction
+Background
 ------------
 
 This is an implementation of a [memcached](http://memcached.org "Memcached")
 server as a Linux kernel module.  Memcached is an in-memory key/value cache
-service used by nearly all large websites to cache their data.  Memcached's use
-case means that it is highly latency-sensitive.  Further, the dumb nature of the
-cache means that very little of the time spent servicing a request is spent
-doing business processing.  These two factors make memcached a prime candidate
-to move into the kernel as a means of removing sources of latency and
-experimenting with different techniques for servicing requests.
+service used by nearly all large websites as a lookaside cache to scale their
+authoritative database.  It supports simple operations such as `GET`, `SET`,
+`PUT`, `INCREMENT`, etc. on a in-memory hash table of key/value pairs.
+Servers typically operate as a LRU cache with additional per-item expire times.
 
-Usually, in-kernel servers are considered a Bad Thing.  On the security front,
-if there exists a vulnerability in an in-kernel server this vulnerability would
-automatically grant full privileges to the machine and potentially allow the
-injection of arbitrary kernel code.  However, memcached was never designed to be
-exposed to untrusted users and so this problem should be solved by simple
-firewalling.  Stability and complexity are issues -- writing robust kernel code
-is generally considered more difficult than writing equivalent user-space code
-and bugs can have disastrous effect.  Yet memcached's simple protocol and
-application logic may minimize this issue.  Finally, an in-kernel server is
-typically much harder to setup and maintain than a user-space server.  In the
-case of memcached, the users are typically seasoned system administrators and so
-this is also of minimal concern.
+Memcached's use case in web applications means that it is highly
+latency-sensitive.  Further, the dumb nature of the cache means that very little
+of the time spent servicing a request is spent doing business processing.  These
+two factors make memcached a prime candidate to move into the kernel as a means
+of removing sources of latency and experimenting with different techniques for
+servicing requests.
 
-Given that an in-kernel memcached may not be a horrible idea and presents some
-compelling opportunities for latency reduction, a prototype of such a server has
-been developed.  This code is still in early alpha stages but should provide
-fertile ground for anyone wanting to experiment with in-kernel caching
-techniques.
+Usually, in-kernel servers are considered a Bad Thing(TM).  On the security
+front an in-kernel server makes any vulnerabilities much more dangerious as they
+effect the kernel directly and have full access to the system.
+However, memcached was never designed to be exposed to untrusted users and so
+this issue is minimized by the network security already in place.  Stability and
+complexity of kernel code are also issues -- writing robust kernel code is
+generally considered more difficult than writing equivalent user-space code and
+bugs can have system-wide effects.  Fortunitily, memcached has a simple protocol
+and application logic to make bug-free implementation easier.  Finally, an
+in-kernel server is typically much harder to setup and maintain than a
+user-space server.  In the case of memcached, users are typically seasoned
+system administrators who are likely to already be experienced in compiling
+their own kernels.
+
+The Project
+-----------
+
+As an experiment, we've ported memcached to the Linux kernel as a dynamically
+loadable module that exists outside of the Linux kernel source tree.  The
+current code is highly experimental and may be used for further development into
+a production system or experimental endeavors.  It is the hope that with further
+development it can be demonstrated that in-kernel servers can achieve
+lower-latency in simple applications with minimal complexity increase.
 
 Structure
 ---------
@@ -59,13 +69,14 @@ Current Limitations
 -------------------
 
 This code is not yet anywhere near production ready, however it does pass the
-memcapable binary tests.  Most of the significant limitations are documented by
-comments containing the string "TODO" (try `make todo` to see them).  Some of
-the most significant include:
+[memcapable](http://libmemcached.org/Memcapable.html "Memcapable") binary tests.
+Most of the significant limitations are documented by comments containing the
+string "TODO" (try `make todo` to see them).  Some of the most significant
+include a lock of support for:
 
  - Multi-threading
  - Support for hash table expansion
- - Leaking disconnected client structures
+ - Freeing disconnected client structures
  - Eviction or expiration of items
 
 Any help to fix these limitations would be appreciated.
