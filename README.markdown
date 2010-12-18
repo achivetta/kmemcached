@@ -19,13 +19,13 @@ of removing sources of latency and experimenting with different techniques for
 servicing requests.
 
 Usually, in-kernel servers are considered a Bad Thing(TM).  On the security
-front an in-kernel server makes any vulnerabilities much more dangerious as they
+front an in-kernel server makes any vulnerabilities much more dangerous as they
 effect the kernel directly and have full access to the system.
 However, memcached was never designed to be exposed to untrusted users and so
 this issue is minimized by the network security already in place.  Stability and
 complexity of kernel code are also issues -- writing robust kernel code is
 generally considered more difficult than writing equivalent user-space code and
-bugs can have system-wide effects.  Fortunitily, memcached has a simple protocol
+bugs can have system-wide effects.  Fortunately, memcached has a simple protocol
 and application logic to make bug-free implementation easier.  Finally, an
 in-kernel server is typically much harder to setup and maintain than a
 user-space server.  In the case of memcached, users are typically seasoned
