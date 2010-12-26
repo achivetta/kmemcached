@@ -24,7 +24,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/kthread.h>
+#include <linux/workqueue.h>
 #include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/types.h>
@@ -85,9 +85,6 @@
 /** Our implementation of the memcached protocol callbacks */
 extern memcached_binary_protocol_callback_st interface_impl;
 
-/** kthread that forms our workqueue */
-struct task_struct *kthread;
-
 /** Client data structure. */
 typedef struct client_t{
     /** Pointer to socket for this client's connection. */
@@ -98,7 +95,7 @@ typedef struct client_t{
     
     /** The work object associated with this client.  This is added to the
      * workqueue when there is work to be done by this client. */
-    struct kthread_work work;
+    struct work_struct work;
 
     /** For clients list. */
     struct list_head list;
@@ -113,21 +110,14 @@ typedef struct client_t{
  */
 static LIST_HEAD(clients);
 
-static void listen_work(struct kthread_work *work);
-static void client_work(struct kthread_work *work);
+static void listen_work(struct work_struct *work);
+static void client_work(struct work_struct *work);
 static void close_connection(client_t *client);
 
-/** Work queue.
- *
- * TODO: Currently, we use a kthread_worker workqueue.  The problem with this is
- * that only one kthread can be attached to a worqueue at a time.  To achieve
- * multi-threading we must either create multiple kthread_workqueues or switch
- * to the other kernel workqueue implementation.
- */
-static DEFINE_KTHREAD_WORKER(workqueue);
-
-/** Work for accepting clients. */
-static DEFINE_KTHREAD_WORK(listen_job, listen_work);
+/** Workqueue for working on connections or the listening socket*/
+struct workqueue_struct *workqueue;
+/** Work for processing an incoming connection */
+DECLARE_WORK(listen_job,listen_work);
 
 /** Listening Socket
  *
@@ -142,7 +132,7 @@ struct memcached_protocol_st *protocol_handle;
 
 /** Equeue a client on the workqueue */
 static void queue_client(client_t *client){
-    queue_kthread_work(&workqueue, &(client->work));
+    queue_work(workqueue, &(client->work));
 }
 
 /** Callback for new data on a listening socket */
@@ -150,7 +140,7 @@ static void callback_listen(struct sock *sk, int bytes){
     if (sk->sk_state != TCP_LISTEN)
         return;
 
-    queue_kthread_work(&workqueue, &listen_job);
+    queue_work(workqueue, &listen_job);
 }
 
 /** Callback for availability of write space on a socket. 
@@ -199,7 +189,7 @@ static void callback_state_change(struct sock *sk){
 }
 
 /** Work to handle an incoming connection on a listening socket */
-static void listen_work(struct kthread_work *work){
+static void listen_work(struct work_struct *work){
     (void)work;
 
     while (1){
@@ -222,7 +212,7 @@ static void listen_work(struct kthread_work *work){
 
         client->sock = new_sock;
         client->libmp = NULL;
-        init_kthread_work(&client->work, client_work);
+        INIT_WORK(&client->work, client_work);
         INIT_LIST_HEAD(&client->list);
         client->state = 0;
         set_bit(STATE_ACTIVE, &client->state);
@@ -257,7 +247,7 @@ static void listen_work(struct kthread_work *work){
 }
 
 /** Work on a client connection */
-static void client_work(struct kthread_work *work){
+static void client_work(struct work_struct *work){
     memcached_protocol_event_t events;
     client_t *client = container_of(work, client_t, work);
 
@@ -380,14 +370,7 @@ int __init kmemcached_init(void)
     }
 
     /* start kernel thread */
-    init_kthread_worker(&workqueue);
-    kthread = kthread_run((void *)kthread_worker_fn, &workqueue, MODULE_NAME);
-    if (IS_ERR(&(kthread))) {
-        printk(KERN_INFO MODULE_NAME": unable to start kernel thread\n");
-        kfree(kthread);
-        return -ENOMEM;
-        // FIXME leak in error condition
-    }
+    workqueue = alloc_workqueue(MODULE_NAME, WQ_NON_REENTRANT | WQ_FREEZEABLE, 0);
 
     return 0;
 }
@@ -404,18 +387,11 @@ void __exit kmemcached_exit(void){
     close_listen_socket();
 
     // FIXME do this client-by-client, see above
-    flush_kthread_worker(&workqueue);
+    flush_workqueue(workqueue);
 
     list_for_each(p,&clients){
         client_t *client = container_of(p,client_t,list);
         close_connection(client);
-    }
-
-    if (kthread==NULL){ // FIXME: what would cause this?
-        printk(KERN_INFO MODULE_NAME": no kernel thread to kill\n");
-    } else {
-        force_sig(SIGTERM, kthread); // FIXME: Why do we do this?
-        kthread_stop(kthread);
     }
 
     shutdown_storage();
