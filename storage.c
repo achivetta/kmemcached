@@ -10,7 +10,7 @@
  * kernel.
  *
  * TODO At the moment, there is no support for locking items or multi-threaded
- * operation.
+ * operation.  Multi-threading is implemented in interface.c by a single lock.
  *
  * TODO At the moment, there is no support for eviction or expiration.  This
  * should be added.  It is likely that the reference memcached implementation
@@ -108,8 +108,8 @@ item_t* create_item(const char* key, size_t nkey, const char* data,
 
 /** Get an item.
  *
- * TODO To implement multi-threaded operation, this should lock the item in some
- * way.  The item is then unlocked by release_item().
+ * TODO To implement good multi-threaded operation, this should lock the item in
+ * some way.  The item is then unlocked by release_item().
  */
 item_t *get_item(const char *key, const size_t nkey) 
 {

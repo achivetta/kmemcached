@@ -73,7 +73,7 @@ Most of the significant limitations are documented by comments containing the
 string "TODO" (try `make todo` to see them).  Some of the most significant
 include a lock of support for:
 
- - Multi-threading
+ - Concurrent hash table access.
  - Support for hash table expansion
  - Freeing disconnected client structures
  - Eviction or expiration of items
