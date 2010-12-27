@@ -21,6 +21,8 @@
 #include "libmp/byteorder.h"
 #include "storage.h"
 
+static DEFINE_MUTEX(storage_lock);
+
 static protocol_binary_response_status add_handler(const void *cookie,
                                                    const void *key,
                                                    uint16_t keylen,
@@ -30,31 +32,29 @@ static protocol_binary_response_status add_handler(const void *cookie,
                                                    uint32_t exptime,
                                                    uint64_t *cas)
 {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
-  item_t* item= get_item(key, keylen);
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    item_t* item;
 
-  (void)cookie;
+    (void)cookie;
+    mutex_lock(&storage_lock);
 
-  if (item == NULL)
-  {
-    item= create_item(key, keylen, data, datalen, flags, (time_t)exptime);
-    if (item == 0)
-    {
-      rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    item = get_item(key, keylen);
+
+    if (item == NULL) {
+        item= create_item(key, keylen, data, datalen, flags, (time_t)exptime);
+        if (item == 0) {
+            rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+        } else {
+            put_item(item);
+            *cas= item->cas;
+            release_item(item);
+        }
+    } else {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
     }
-    else
-    {
-      put_item(item);
-      *cas= item->cas;
-      release_item(item);
-    }
-  }
-  else
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-  }
 
-  return rval;
+    mutex_unlock(&storage_lock);
+    return rval;
 }
 
 static protocol_binary_response_status append_handler(const void *cookie,
@@ -65,39 +65,34 @@ static protocol_binary_response_status append_handler(const void *cookie,
                                                       uint64_t cas,
                                                       uint64_t *result_cas)
 {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    item_t *item, *nitem;
 
-  item_t *item= get_item(key, keylen);
-  item_t *nitem;
+    mutex_lock(&storage_lock);
+    (void)cookie;
 
-  (void)cookie;
+    item= get_item(key, keylen);
 
-  if (item == NULL)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-  }
-  else if (cas != 0 && cas != item->cas)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-  }
-  else if ((nitem= create_item(key, keylen, NULL, item->size + vallen,
-                               item->flags, item->exp)) == NULL)
-  {
-    release_item(item);
-    rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
-  }
-  else
-  {
-    memcpy(nitem->data, item->data, item->size);
-    memcpy(((char*)(nitem->data)) + item->size, val, vallen);
-    release_item(item);
-    delete_item(key, keylen);
-    put_item(nitem);
-    *result_cas= nitem->cas;
-    release_item(nitem);
-  }
+    if (item == NULL) {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    } else if (cas != 0 && cas != item->cas) {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+    } else if ((nitem= create_item(key, keylen, NULL, item->size + vallen,
+                                   item->flags, item->exp)) == NULL) {
+        release_item(item);
+        rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    } else {
+        memcpy(nitem->data, item->data, item->size);
+        memcpy(((char*)(nitem->data)) + item->size, val, vallen);
+        release_item(item);
+        delete_item(key, keylen);
+        put_item(nitem);
+        *result_cas= nitem->cas;
+        release_item(nitem);
+    }
 
-  return rval;
+    mutex_unlock(&storage_lock);
+    return rval;
 }
 
 static protocol_binary_response_status decrement_handler(const void *cookie,
@@ -108,97 +103,102 @@ static protocol_binary_response_status decrement_handler(const void *cookie,
                                                          uint32_t expiration,
                                                          uint64_t *result,
                                                          uint64_t *result_cas) {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
-  uint64_t val= initial;
-  item_t *item= get_item(key, keylen);
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    uint64_t val= initial;
+    item_t *item;
 
-  (void)cookie;
+    (void)cookie;
+    mutex_lock(&storage_lock);
 
-  if (item != NULL)
-  {
-    if (delta > *(uint64_t*)item->data)
-      val= 0;
-    else
-      val= *(uint64_t*)item->data - delta;
+    item = get_item(key, keylen);
 
-    expiration= (uint32_t)item->exp;
-    release_item(item);
-    delete_item(key, keylen);
-  }
+    if (item != NULL) {
+        if (delta > *(uint64_t*)item->data)
+            val= 0;
+        else
+            val= *(uint64_t*)item->data - delta;
 
-  item= create_item(key, keylen, NULL, sizeof(initial), 0, (time_t)expiration);
-  if (item == 0)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
-  }
-  else
-  {
-    memcpy(item->data, &val, sizeof(val));
-    put_item(item);
-    *result= val;
-    *result_cas= item->cas;
-    release_item(item);
-  }
+        expiration= (uint32_t)item->exp;
+        release_item(item);
+        delete_item(key, keylen);
+    }
 
-  return rval;
+    item= create_item(key, keylen, NULL, sizeof(initial), 0, (time_t)expiration);
+    if (item == 0) {
+        rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    } else {
+        memcpy(item->data, &val, sizeof(val));
+        put_item(item);
+        *result= val;
+        *result_cas= item->cas;
+        release_item(item);
+    }
+
+    mutex_unlock(&storage_lock);
+    return rval;
 }
 
 static protocol_binary_response_status delete_handler(const void *cookie,
                                                       const void *key,
                                                       uint16_t keylen,
                                                       uint64_t cas) {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
 
-  (void)cookie;
+    (void)cookie;
+    mutex_lock(&storage_lock);
 
-  if (cas != 0)
-  {
-    item_t *item= get_item(key, keylen);
-    if (item != NULL)
-    {
-      if (item->cas != cas)
-      {
-        release_item(item);
-        return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-      }
-      release_item(item);
+    if (cas != 0) {
+        item_t *item= get_item(key, keylen);
+        if (item != NULL) {
+            if (item->cas != cas) {
+                release_item(item);
+                mutex_unlock(&storage_lock);
+                return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+            }
+            release_item(item);
+        }
     }
-  }
 
-  if (!delete_item(key, keylen))
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-  }
+    if (!delete_item(key, keylen)) {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    }
 
-  return rval;
+    mutex_unlock(&storage_lock);
+    return rval;
 }
 
 
 static protocol_binary_response_status flush_handler(const void *cookie,
                                                      uint32_t when) {
 
-  (void)cookie;
-  flush(when);
-  return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    (void)cookie;
+    mutex_lock(&storage_lock);
+    flush(when);
+    mutex_unlock(&storage_lock);
+    return PROTOCOL_BINARY_RESPONSE_SUCCESS;
 }
 
 static protocol_binary_response_status get_handler(const void *cookie,
                                                    const void *key,
                                                    uint16_t keylen,
                                                    memcached_binary_protocol_get_response_handler response_handler) {
-  protocol_binary_response_status rc;
-  item_t *item= get_item(key, keylen);
+    protocol_binary_response_status rc;
+    item_t *item;
 
-  if (item == NULL)
-  {
-    return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-  }
+    mutex_lock(&storage_lock);
+    item = get_item(key, keylen);
 
-  rc= response_handler(cookie, key, (uint16_t)keylen,
-                          item->data, (uint32_t)item->size, item->flags,
-                          item->cas);
-  release_item(item);
-  return rc;
+    if (item == NULL) {
+        return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    }
+
+    rc= response_handler(cookie, key, (uint16_t)keylen,
+                         item->data, (uint32_t)item->size, item->flags,
+                         item->cas);
+    release_item(item);
+
+    mutex_unlock(&storage_lock);
+    return rc;
 }
 
 static protocol_binary_response_status increment_handler(const void *cookie,
@@ -209,37 +209,38 @@ static protocol_binary_response_status increment_handler(const void *cookie,
                                                          uint32_t expiration,
                                                          uint64_t *result,
                                                          uint64_t *result_cas) {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
-  uint64_t val= initial;
-  item_t *item= get_item(key, keylen);
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    uint64_t val= initial;
+    item_t *item;
+    
+    (void)cookie;
+    mutex_lock(&storage_lock);
 
-  (void)cookie;
+    item = get_item(key, keylen);
 
-  if (item != NULL)
-  {
-    val= (*(uint64_t*)item->data) + delta;
-    expiration= (uint32_t)item->exp;
-    release_item(item);
-    delete_item(key, keylen);
-  }
+    if (item != NULL) {
+        val= (*(uint64_t*)item->data) + delta;
+        expiration= (uint32_t)item->exp;
+        release_item(item);
+        delete_item(key, keylen);
+    }
 
-  item= create_item(key, keylen, NULL, sizeof(initial), 0, (time_t)expiration);
-  if (item == NULL)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
-  }
-  else
-  {
-    char buffer[1024] = {0}; // FIXME: does this need to be so big ~ajc
-    memcpy(buffer, key, keylen);
-    memcpy(item->data, &val, sizeof(val));
-    put_item(item);
-    *result= val;
-    *result_cas= item->cas;
-    release_item(item);
-  }
+    item= create_item(key, keylen, NULL, sizeof(initial), 0, (time_t)expiration);
+    if (item == NULL) {
+        rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    } else {
+        char buffer[1024] = {0}; // FIXME: does this need to be so big ~ajc
+        memcpy(buffer, key, keylen);
+        memcpy(item->data, &val, sizeof(val));
+        put_item(item);
+        *result= val;
+        *result_cas= item->cas;
+        release_item(item);
+    }
 
-  return rval;
+    mutex_unlock(&storage_lock);
+
+    return rval;
 }
 
 static protocol_binary_response_status noop_handler(const void *cookie) {
@@ -254,44 +255,41 @@ static protocol_binary_response_status prepend_handler(const void *cookie,
                                                        uint32_t vallen,
                                                        uint64_t cas,
                                                        uint64_t *result_cas) {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
 
-  item_t *item= get_item(key, keylen);
-  item_t *nitem= NULL;
+    item_t *nitem= NULL;
+    item_t *item;
 
-  (void)cookie;
+    (void)cookie;
+    mutex_lock(&storage_lock);
 
-  if (item == NULL)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-  }
-  else if (cas != 0 && cas != item->cas)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-  }
-  else if ((nitem= create_item(key, keylen, NULL, item->size + vallen,
-                                 item->flags, item->exp)) == NULL)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
-  }
-  else
-  {
-    memcpy(nitem->data, val, vallen);
-    memcpy(((char*)(nitem->data)) + vallen, item->data, item->size);
-    release_item(item);
-    item= NULL;
-    delete_item(key, keylen);
-    put_item(nitem);
-    *result_cas= nitem->cas;
-  }
+    item = get_item(key, keylen);
 
-  if (item)
-    release_item(item);
+    if (item == NULL) {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    } else if (cas != 0 && cas != item->cas) {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+    } else if ((nitem= create_item(key, keylen, NULL, item->size + vallen,
+                                   item->flags, item->exp)) == NULL) {
+        rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    } else {
+        memcpy(nitem->data, val, vallen);
+        memcpy(((char*)(nitem->data)) + vallen, item->data, item->size);
+        release_item(item);
+        item= NULL;
+        delete_item(key, keylen);
+        put_item(nitem);
+        *result_cas= nitem->cas;
+    }
 
-  if (nitem)
-    release_item(nitem);
+    if (item)
+        release_item(item);
 
-  return rval;
+    if (nitem)
+        release_item(nitem);
+
+    mutex_unlock(&storage_lock);
+    return rval;
 }
 
 static protocol_binary_response_status quit_handler(const void *cookie) {
@@ -308,38 +306,34 @@ static protocol_binary_response_status replace_handler(const void *cookie,
                                                        uint32_t exptime,
                                                        uint64_t cas,
                                                        uint64_t *result_cas) {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
-  item_t* item= get_item(key, keylen);
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    item_t* item; 
 
-  (void)cookie;
+    mutex_lock(&storage_lock);
+    (void)cookie;
 
-  if (item == NULL)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-  }
-  else if (cas == 0 || cas == item->cas)
-  {
-    release_item(item);
-    delete_item(key, keylen);
-    item= create_item(key, keylen, data, datalen, flags, (time_t)exptime);
-    if (item == 0)
-    {
-      rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    item= get_item(key, keylen);
+
+    if (item == NULL) {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    } else if (cas == 0 || cas == item->cas) {
+        release_item(item);
+        delete_item(key, keylen);
+        item= create_item(key, keylen, data, datalen, flags, (time_t)exptime);
+        if (item == 0) {
+            rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+        } else {
+            put_item(item);
+            *result_cas= item->cas;
+            release_item(item);
+        }
+    } else {
+        rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+        release_item(item);
     }
-    else
-    {
-      put_item(item);
-      *result_cas= item->cas;
-      release_item(item);
-    }
-  }
-  else
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-    release_item(item);
-  }
 
-  return rval;
+    mutex_unlock(&storage_lock);
+    return rval;
 }
 
 static protocol_binary_response_status set_handler(const void *cookie,
@@ -351,36 +345,34 @@ static protocol_binary_response_status set_handler(const void *cookie,
                                                    uint32_t exptime,
                                                    uint64_t cas,
                                                    uint64_t *result_cas) {
-  protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
-  item_t* item;
+    protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    item_t* item;
 
-  (void)cookie;
+    (void)cookie;
+    mutex_lock(&storage_lock);
 
-  if (cas != 0)
-  {
-    item_t* item= get_item(key, keylen);
-    if (item != NULL && cas != item->cas)
-    {
-      /* Invalid CAS value */
-      release_item(item);
-      return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+    if (cas != 0) {
+        item_t* item= get_item(key, keylen);
+        if (item != NULL && cas != item->cas) {
+            /* Invalid CAS value */
+            release_item(item);
+            mutex_unlock(&storage_lock);
+            return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+        }
     }
-  }
 
-  delete_item(key, keylen);
-  item= create_item(key, keylen, data, datalen, flags, (time_t)exptime);
-  if (item == 0)
-  {
-    rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
-  }
-  else
-  {
-    put_item(item);
-    *result_cas= item->cas;
-    release_item(item);
-  }
+    delete_item(key, keylen);
+    item= create_item(key, keylen, data, datalen, flags, (time_t)exptime);
+    if (item == 0) {
+        rval= PROTOCOL_BINARY_RESPONSE_ENOMEM;
+    } else {
+        put_item(item);
+        *result_cas= item->cas;
+        release_item(item);
+    }
 
-  return rval;
+    mutex_unlock(&storage_lock);
+    return rval;
 }
 
 static protocol_binary_response_status stat_handler(const void *cookie,
