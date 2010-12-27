@@ -10,7 +10,7 @@ clean:
 	make -C $(KERNEL_TREE) M=$(PWD) clean
 
 tags:
-	make -C $(KERNEL_TREE) M=$(PWD) tags
+	etags *.c *.h libmp/*.c libmp/*.h
 
 todo:
 	grep -A 10 TODO *.c *.h libmp/*.c libmp/*.h
