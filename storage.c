@@ -48,7 +48,8 @@ static void update_cas(item_t* item){
   item->cas= ++cas;
 }
 
-bool initialize_storage(void) {
+bool initialize_storage(void) 
+{
     primary_hashtable = vzalloc(hashsize(hashpower) * sizeof(void *));
     if (! primary_hashtable) {
         printk(KERN_INFO "assoc.c: Failed to init hashtable.\n");
@@ -73,40 +74,36 @@ void shutdown_storage(void)
 item_t* create_item(const char* key, size_t nkey, const char* data,
                          size_t size, uint32_t flags, time_t exp)
 {
-  item_t* ret= kcalloc(1, sizeof(item_t), GFP_KERNEL);
+    item_t* ret= kcalloc(1, sizeof(item_t), GFP_KERNEL);
 
-  if (ret != NULL)
-  {
-    ret->key= kmalloc(nkey, GFP_KERNEL);
-    if (size > 0)
-    {
-      /* TODO We need to do some investigation into the best way to store data.
-       * This seems to run out of memory fast.
-       */
-      ret->data= vmalloc(size);
+    if (ret != NULL){
+        ret->key= kmalloc(nkey, GFP_KERNEL);
+        if (size > 0){
+            /* TODO We need to do some investigation into the best way to store data.
+             * This seems to run out of memory fast.
+             */
+            ret->data= vmalloc(size);
+        }
+
+        if (ret->key == NULL || (size > 0 && ret->data == NULL)){
+            kfree(ret->key);
+            vfree(ret->data);
+            kfree(ret);
+            return NULL;
+        }
+
+        memcpy(ret->key, key, nkey);
+        if (data != NULL){
+            memcpy(ret->data, data, size);
+        }
+
+        ret->nkey= nkey;
+        ret->size= size;
+        ret->flags= flags;
+        ret->exp= exp;
     }
 
-    if (ret->key == NULL || (size > 0 && ret->data == NULL))
-    {
-      kfree(ret->key);
-      vfree(ret->data);
-      kfree(ret);
-      return NULL;
-    }
-
-    memcpy(ret->key, key, nkey);
-    if (data != NULL)
-    {
-      memcpy(ret->data, data, size);
-    }
-
-    ret->nkey= nkey;
-    ret->size= size;
-    ret->flags= flags;
-    ret->exp= exp;
-  }
-
-  return ret;
+    return ret;
 }
 
 /** Get an item.
@@ -114,7 +111,8 @@ item_t* create_item(const char* key, size_t nkey, const char* data,
  * TODO To implement multi-threaded operation, this should lock the item in some
  * way.  The item is then unlocked by release_item().
  */
-item_t *get_item(const char *key, const size_t nkey) {
+item_t *get_item(const char *key, const size_t nkey) 
+{
     uint32_t hv = hash(key, nkey, 0);
     item_t *it, *ret = NULL;
     int depth = 0;
@@ -134,7 +132,8 @@ item_t *get_item(const char *key, const size_t nkey) {
 
 /* returns the address of the item pointer before the key.  if *item == 0,
    the item wasn't found */
-static item_t** _hashitem_before (const char *key, const size_t nkey) {
+static item_t** _hashitem_before (const char *key, const size_t nkey) 
+{
     uint32_t hv = hash(key, nkey, 0);
     item_t **pos;
 
@@ -148,7 +147,8 @@ static item_t** _hashitem_before (const char *key, const size_t nkey) {
 
 /** Removes from the hash table and free()s an item
  */
-bool delete_item(const char *key, const size_t nkey) {
+bool delete_item(const char *key, const size_t nkey) 
+{
     item_t **before = _hashitem_before(key, nkey);
 
     if (*before) {
@@ -164,7 +164,8 @@ bool delete_item(const char *key, const size_t nkey) {
 }
 
 /* Note: this isn't an update.  The key must not already exist to call this */
-void put_item(item_t *it) {
+void put_item(item_t *it) 
+{
     uint32_t hv;
 
 #ifndef NDEBUG
@@ -185,7 +186,8 @@ void put_item(item_t *it) {
  *
  * TODO Item locking needs to be implemented.
  */
-void release_item(item_t* item){
+void release_item(item_t* item)
+{
     /* does nothing, currently */
 }
 
