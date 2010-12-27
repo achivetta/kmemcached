@@ -4,7 +4,7 @@
  * engine for kmemcaced.  It was designed to be easily upgraded/replaced
  * independent from the rest of the projec.
  *
- * TODO This file contains code for resizing the hast table in another thread.
+ * TODO This file contains code for resizing the hash table in another thread.
  * At the moment we've wrapped this code in ifdef ASSOC_SUPPORT_EXPAND to
  * disable it until we can implement this multi-threaded operation in the
  * kernel.
@@ -13,7 +13,7 @@
  * operation.
  *
  * TODO At the moment, there is no support for eviction or expiration.  This
- * should be added.  It is likely that he reference memcached implementation
+ * should be added.  It is likely that the reference memcached implementation
  * will be of some help in this regard.
  */
 
