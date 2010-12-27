@@ -189,6 +189,7 @@ static protocol_binary_response_status get_handler(const void *cookie,
     item = get_item(key, keylen);
 
     if (item == NULL) {
+        mutex_unlock(&storage_lock);
         return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
     }
 
