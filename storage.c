@@ -37,15 +37,14 @@ static unsigned int hashpower = 18;
 #define hashsize(n) ((ub4)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
-/* Main hash table. This is where we look except during expansion. */
+/** Main hash table. */
 static item_t** primary_hashtable = 0;
 
-/* Number of items in the hash table. */
+/** Number of items in the hash table. */
 static unsigned int hash_items = 0;
 
 static uint64_t cas;
-static void update_cas(item_t* item)
-{
+static void update_cas(item_t* item){
   item->cas= ++cas;
 }
 
