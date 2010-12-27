@@ -49,8 +49,7 @@ static void update_cas(item_t* item){
 }
 
 bool initialize_storage(void) {
-    // TODO should this be vmalloc()?
-    primary_hashtable = kcalloc(hashsize(hashpower), sizeof(void *),GFP_KERNEL);
+    primary_hashtable = vzalloc(hashsize(hashpower) * sizeof(void *));
     if (! primary_hashtable) {
         printk(KERN_INFO "assoc.c: Failed to init hashtable.\n");
         return false;
@@ -61,7 +60,7 @@ bool initialize_storage(void) {
 void shutdown_storage(void)
 {
     flush(0);
-    kfree(primary_hashtable);
+    vfree(primary_hashtable);
 }
 
 /** Create a new item.
