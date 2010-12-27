@@ -1,4 +1,3 @@
-/* -*- Mode: C; tab-width: 2; c-basic-offset: 2; indent-tabs-mode: nil -*- */
 #ifndef STORAGE_H
 #define STORAGE_H
 
@@ -16,14 +15,40 @@ typedef struct item {
 bool initialize_storage(void);
 void shutdown_storage(void);
 
+/** Create an item, does not add it to any data structures. */
 item_t* create_item(const char* key, size_t nkey, const char* data,
                          size_t size, uint32_t flags, time_t exp);
 
-void put_item(item_t* item);
-item_t* get_item(const char* key, size_t nkey);
-bool delete_item(const char* key, size_t nkey);
+/** Clone an item. */
+item_t* clone_item(item_t *item);
+
+/** Insert an item unconditionally. */
+void set_item(item_t* item); 
+
+/** Insert an item that does not already exist. */
+bool add_item(item_t* item); 
+
+/** Update an item that already exists. */
+bool replace_item(item_t* item, uint64_t cas); 
+
+/** Fetch an item.
+ *
+ * This will get a reference to an item and increment its reference count.  You
+ * must then release the reference by calling release_item() when done with it.
+ */
+item_t* get_item(const char* key, size_t nkey); 
+
+/** Delete an item with the specified key. */
+int delete_item(const char* key, size_t nkey, uint64_t cas);
+
+/** Flush all items
+ *
+ * If the optional argument when is provided the flush task is enqueued to be
+ * performed in the future.
+ */
 void flush(uint32_t when);
-void free_item(item_t* item);
-void release_item(item_t* item); // For use when ref counting/locking
+
+/** Release the reference to an item. */
+void release_item(item_t* item);
 
 #endif
