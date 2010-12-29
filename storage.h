@@ -9,7 +9,8 @@ typedef struct item {
   size_t size;
   uint32_t flags;
   time_t exp;
-  int nref;
+  atomic_t refcount;
+  struct rcu_head rcu_head;
   struct item* h_next;
 } item_t;
 
