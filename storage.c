@@ -1,16 +1,15 @@
 /** Hash table / Storage Engine
  *
  * This file is based on assoc.c from the memcached source.  It is the storage
- * engine for kmemcaced.  It was designed to be easily upgraded/replaced
- * independent from the rest of the projec.
+ * engine for kmemcaced.  
  *
- * TODO This file contains code for resizing the hash table in another thread.
- * At the moment we've wrapped this code in ifdef ASSOC_SUPPORT_EXPAND to
- * disable it until we can implement this multi-threaded operation in the
- * kernel.
+ * The scope of the operations in this file is the minimum necessairy to ensure
+ * the entire memcached protocol can be supported atomically while not ever
+ * allowing a caller to hold a write lock across calls.  Operations such as
+ * append are to be implemented via optimistic locking using the cas values of
+ * the items.
  *
- * TODO At the moment, there is no support for locking items or multi-threaded
- * operation.  Multi-threading is implemented in interface.c by a single lock.
+ * TODO Add support for resizing the hash table.
  *
  * TODO At the moment, there is no support for eviction or expiration.  This
  * should be added.  It is likely that the reference memcached implementation
@@ -24,9 +23,6 @@
 #include "storage.h"
 #include "hash.h"
 
-typedef  unsigned long  int  ub4;   /* unsigned 4-byte quantities */
-typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
-
 /** how many powers of 2's worth of buckets we use 
  *
  * For the moment, this is an important configuration value as the hash table
@@ -34,24 +30,22 @@ typedef  unsigned       char ub1;   /* unsigned 1-byte quantities */
  */
 static unsigned int hashpower = 18;
 
-#define hashsize(n) ((ub4)1<<(n))
+#define hashsize(n) ((uint32_t)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
 /** Main hash table. */
-static item_t** primary_hashtable = 0;
+static item_t** hashtable = 0;
 
 /** Number of items in the hash table. */
 static unsigned int hash_items = 0;
 
 static uint64_t cas;
-static void update_cas(item_t* item){
-  item->cas= ++cas;
-}
+static void update_cas(item_t* item){ item->cas= ++cas; }
 
 bool initialize_storage(void) 
 {
-    primary_hashtable = vzalloc(hashsize(hashpower) * sizeof(void *));
-    if (! primary_hashtable) {
+    hashtable = vzalloc(hashsize(hashpower) * sizeof(void *));
+    if (! hashtable) {
         printk(KERN_INFO "assoc.c: Failed to init hashtable.\n");
         return false;
     }
@@ -61,10 +55,12 @@ bool initialize_storage(void)
 void shutdown_storage(void)
 {
     flush(0);
-    vfree(primary_hashtable);
+    vfree(hashtable);
 }
 
 /** Create a new item.
+ *
+ * The caller will hold a reference to the item after creation.
  *
  * TODO This is one place that could use a lot of work.  For example, we
  * currently allocate the item, key and value seperately.  Putting the key at
@@ -106,10 +102,15 @@ item_t* create_item(const char* key, size_t nkey, const char* data,
     return ret;
 }
 
-/** Get an item.
+/** Clone an item. */
+item_t* clone_item(item_t *item){
+    return NULL;
+}
+
+/** Fetch an item.
  *
- * TODO To implement good multi-threaded operation, this should lock the item in
- * some way.  The item is then unlocked by release_item().
+ * This will get a reference to an item and increment its reference count.  You
+ * must then release the reference by calling release_item() when done with it.
  */
 item_t *get_item(const char *key, const size_t nkey) 
 {
@@ -117,7 +118,7 @@ item_t *get_item(const char *key, const size_t nkey)
     item_t *it, *ret = NULL;
     int depth = 0;
 
-    it = primary_hashtable[hv & hashmask(hashpower)];
+    it = hashtable[hv & hashmask(hashpower)];
 
     while (it) {
         if ((nkey == it->nkey) && (memcmp(key, it->key, nkey) == 0)) {
@@ -137,7 +138,7 @@ static item_t** _hashitem_before (const char *key, const size_t nkey)
     uint32_t hv = hash(key, nkey, 0);
     item_t **pos;
 
-    pos = &primary_hashtable[hv & hashmask(hashpower)];
+    pos = &hashtable[hv & hashmask(hashpower)];
 
     while (*pos && ((nkey != (*pos)->nkey) || memcmp(key, (*pos)->key, nkey))) {
         pos = &(*pos)->h_next;
@@ -145,9 +146,16 @@ static item_t** _hashitem_before (const char *key, const size_t nkey)
     return pos;
 }
 
-/** Removes from the hash table and free()s an item
+/** Delete an item with the specified key. 
+ *
+ * The caller may or may not hold a reference to this item.  If any references
+ * are outstanding, the item will persist until the last reference is released.
+ *
+ * returns: 0 on success
+ *          -1 if item did not exist
+ *          -2 if item's cas did not match
  */
-bool delete_item(const char *key, const size_t nkey) 
+int delete_item(const char *key, const size_t nkey, uint64_t cas) 
 {
     item_t **before = _hashitem_before(key, nkey);
 
@@ -156,15 +164,33 @@ bool delete_item(const char *key, const size_t nkey)
         hash_items--;
         nxt = (*before)->h_next;
         (*before)->h_next = 0;   /* probably pointless, but whatever. */
-        free_item(*before);
+        //free_item(*before);
         *before = nxt;
         return true;
     }
     return false;
 }
 
-/* Note: this isn't an update.  The key must not already exist to call this */
-void put_item(item_t *it) 
+/** Insert an item unconditionally. */
+void set_item(item_t* item)
+{
+}
+
+/** Update an item if it already exists. 
+ *
+ * A reference must be held on the item.
+ *
+ * returns: 0 on success
+ *          -1 if item did not exist
+ *          -2 if item's cas did not match
+ */
+int replace_item(item_t* item, uint64_t cas)
+{
+    return false;
+}
+
+/** Insert an item if it does not already exist. */
+bool add_item(item_t* it)
 {
     uint32_t hv;
 
@@ -176,52 +202,47 @@ void put_item(item_t *it)
 
     hv = hash(it->key, it->nkey, 0);
 
-    it->h_next = primary_hashtable[hv & hashmask(hashpower)];
-    primary_hashtable[hv & hashmask(hashpower)] = it;
+    it->h_next = hashtable[hv & hashmask(hashpower)];
+    hashtable[hv & hashmask(hashpower)] = it;
 
     hash_items++;
+    return true;
 }
 
-/** Release all locks on an item
- *
- * TODO Item locking needs to be implemented.
- */
-void release_item(item_t* item)
-{
-    /* does nothing, currently */
-}
-
-/** Free the memory assocaited with an item.
- *
- * TODO You should hold the lock to an item when calling this.  The lock will
- * then be released.  If another thread has also got the same item, the free
- * will occur when the final thread has released the item.
- */
-void free_item(item_t* item)
+/** Free the memory assocaited with an item. */
+static void free_item(item_t* item)
 {
     kfree(item->key);
     vfree(item->data);
     kfree(item);
 }
 
-/** Purge ALL keys from the datastore
+/** Release the reference to an item. */
+void release_item(item_t* item)
+{
+    /* does nothing, currently */
+}
+
+
+/** Flush all items
  *
  * TODO If provided, the when parameter specifies how far in the future the release
  * should occur.  Note that the release is not guarenteed to happen at this
  * time, only after it
  */
-void flush(uint32_t when){
+void flush(uint32_t when)
+{
     int i;
 
     (void)when; //FIXME
 
     for(i = 0; i < hashsize(hashpower); i++){
-        item_t *it = primary_hashtable[i], *next;
+        item_t *it = hashtable[i], *next;
         while (it){
             next = it->h_next;
             free_item(it);
             it = next;
         }
-        primary_hashtable[i] = NULL;
+        hashtable[i] = NULL;
     }
 }
