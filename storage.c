@@ -165,8 +165,10 @@ item_t *get_item(const char *key, const size_t nkey)
         it = it->h_next;
     }
 
-    if (it == NULL)
+    if (it == NULL){
+        rcu_read_unlock();
         return NULL;
+    }
 
     if (!atomic_inc_not_zero(&it->refcount)) {
         rcu_read_unlock();
