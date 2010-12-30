@@ -13,4 +13,4 @@ tags:
 	etags *.c *.h libmp/*.c libmp/*.h
 
 todo:
-	grep -A 10 TODO *.c *.h libmp/*.c libmp/*.h
+	ack-grep -C '(FIXME|TODO)'
