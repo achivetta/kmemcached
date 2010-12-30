@@ -111,13 +111,17 @@ item_t* create_item(const char* key, size_t nkey, const char* data,
     if (ret != NULL){
         ret->key= kmalloc(nkey, GFP_KERNEL);
         if (size > 0)
-            ret->data= vmalloc(size);
+            ret->data= kmalloc(size, GFP_KERNEL);
             /* TODO We need to do some investigation into the best way to store data.
-             * This seems to run out of memory fast. */
+             * One option would be to use vmalloc, however vfree cannot be
+             * called from in an interrupt context which is how rcu_call is
+             * done.  kvmalloc()/kvfree() from AppArmor might be a possible solution
+             * but would need to be copy/pasted here.
+             */
 
         if (ret->key == NULL || (size > 0 && ret->data == NULL)){
             kfree(ret->key);
-            vfree(ret->data);
+            kfree(ret->data);
             kfree(ret);
             return NULL;
         }
@@ -160,6 +164,9 @@ item_t *get_item(const char *key, const size_t nkey)
             break;
         it = it->h_next;
     }
+
+    if (it == NULL)
+        return NULL;
 
     if (!atomic_inc_not_zero(&it->refcount)) {
         rcu_read_unlock();
@@ -328,7 +335,7 @@ bool add_item(item_t* item)
 /** Free the memory assocaited with an item. */
 static void free_item(item_t *item){
     kfree(item->key);
-    vfree(item->data);
+    kfree(item->data);
     kfree(item);
 }
 
