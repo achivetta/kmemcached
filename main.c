@@ -323,11 +323,8 @@ static void close_listen_socket(void){
 
 /** Close a client 
  *
- * TODO We currently leak the client struct here.  The problem is that the work
- * that we are currently executing in the workqueue is part of that struct and
- * since it is touched by the worker function after the work is complete, we
- * can't free it.  One solution would be to create a free list of closed clients
- * and then enqueue a work which would free all clients on that list.
+ * FIXME: "It is permissible to free the struct work_struct from inside the
+ * function that is called from it." (workqueue.c)
  */ 
 static void close_connection(client_t *client){
     printk(KERN_INFO MODULE_NAME": Closing connection.\n");
