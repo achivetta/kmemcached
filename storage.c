@@ -58,8 +58,8 @@ static item_t** hashtable = 0;
 /** Number of items in the hash table. */
 static atomic_t hash_items;
 
-static uint64_t cas;
-// FIXME it seems we never use this, that's obviousily wrong...
+static uint64_t cas = 0;
+/* TODO: make this per-cpu; initialize to cpuid, incrument by numcpu */
 static void update_cas(item_t* item){ item->cas= ++cas; }
 
 bool initialize_storage(void) 
@@ -140,11 +140,6 @@ item_t* create_item(const char* key, size_t nkey, const char* data,
     return ret;
 }
 
-/** Clone an item. */
-item_t* clone_item(item_t *item){
-    return NULL;
-}
-
 /** Fetch an item.
  *
  * This will get a reference to an item and increment its reference count.  You
@@ -208,7 +203,7 @@ int delete_item(const char *key, const size_t nkey, uint64_t cas)
         return -1; /* item not found */
     }
 
-    if (item->cas != cas){
+    if (cas && item->cas != cas){
         spin_unlock(hash_lock_addr(bucket));
         return -2; /* cas did not match */
     }
@@ -230,6 +225,8 @@ void set_item(item_t* item)
     uint32_t hv = hash(item->key, item->nkey, 0);
     int bucket = hv & hashmask(hashpower);
     item_t **ptr, *old_item;
+
+    update_cas(item);
 
     spin_lock(hash_lock_addr(bucket));
 
@@ -272,6 +269,8 @@ int replace_item(item_t* item, uint64_t cas)
     int bucket = hv & hashmask(hashpower);
     item_t **ptr, *old_item;
 
+    update_cas(item);
+
     spin_lock(hash_lock_addr(bucket));
 
     ptr = &hashtable[bucket];
@@ -285,7 +284,7 @@ int replace_item(item_t* item, uint64_t cas)
         return -1; /* item did not exist */
     }
 
-    if (old_item->cas != cas){
+    if (cas && old_item->cas != cas){
         spin_unlock(hash_lock_addr(bucket));
         return -2; /* cas did not match */
     }
@@ -310,6 +309,8 @@ bool add_item(item_t* item)
     int bucket = hv & hashmask(hashpower);
     item_t **ptr;
 
+    update_cas(item);
+
     spin_lock(hash_lock_addr(bucket));
 
     ptr = &hashtable[bucket];
@@ -331,7 +332,7 @@ bool add_item(item_t* item)
 
     atomic_inc(&hash_items);
 
-    return 0;
+    return true;
 }
 
 /** Free the memory assocaited with an item. */
@@ -363,19 +364,25 @@ void release_item(item_t* item)
  */
 void flush(uint32_t when)
 {
-    /*
-    int i;
+    int bucket;
 
     (void)when;
 
-    for(i = 0; i < hashsize(hashpower); i++){
-        item_t *it = hashtable[i], *next;
+    for(bucket = 0; bucket < hashsize(hashpower); bucket++){
+        item_t *it, *next;
+
+        spin_lock(hash_lock_addr(bucket));
+
+        it = hashtable[bucket];
+        hashtable[bucket] = NULL;
+
         while (it){
             next = it->h_next;
-            free_item(it);
+            release_item(it);
+            atomic_dec(&hash_items);
             it = next;
         }
-        hashtable[i] = NULL;
+
+        spin_unlock(hash_lock_addr(bucket));
     }
-    */
 }

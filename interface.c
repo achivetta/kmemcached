@@ -83,13 +83,13 @@ static protocol_binary_response_status append_handler(const void *cookie,
 
         release_item(item);
 
-        if (replace_item(nitem, replace_cas)){
+        if (replace_item(nitem, replace_cas) == 0){
             *result_cas= nitem->cas;
             release_item(nitem);
             return PROTOCOL_BINARY_RESPONSE_SUCCESS;
         }
 
-        if (cas != 0){
+        if (cas){
             *result_cas= nitem->cas;
             release_item(nitem);
             return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
@@ -143,7 +143,7 @@ static protocol_binary_response_status decrement_handler(const void *cookie,
             *result= val;
         }
 
-        if (replace_item(item, cas)){
+        if ((cas && (replace_item(item,cas) == 0)) || add_item(item)){
             *result_cas= item->cas;
             release_item(item);
             return PROTOCOL_BINARY_RESPONSE_SUCCESS;
@@ -236,10 +236,10 @@ static protocol_binary_response_status increment_handler(const void *cookie,
             *result= val;
         }
 
-        if (replace_item(item, cas)){
-            *result_cas= item->cas;
-            release_item(item);
-            return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+        if ((cas && (replace_item(item,cas) == 0)) || add_item(item)){
+                *result_cas= item->cas;
+                release_item(item);
+                return PROTOCOL_BINARY_RESPONSE_SUCCESS;
         }
 
         release_item(item);
@@ -289,13 +289,13 @@ static protocol_binary_response_status prepend_handler(const void *cookie,
 
         release_item(item);
 
-        if (replace_item(nitem, replace_cas)){
+        if (replace_item(nitem, replace_cas) == 0){
             *result_cas= nitem->cas;
             release_item(nitem);
             return PROTOCOL_BINARY_RESPONSE_SUCCESS;
         }
 
-        if (cas != 0){
+        if (cas){
             *result_cas= nitem->cas;
             release_item(nitem);
             return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
