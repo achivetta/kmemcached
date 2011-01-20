@@ -23,6 +23,8 @@
 #include "storage.h"
 #include "hash.h"
 
+/* FIXME: how many locks should we really be using? is it actually a function of
+ * the number of processors and not the size of the hashtable? */
 #ifdef CONFIG_LOCKDEP
 # define HASH_LOCK_SZ	256
 #else
@@ -40,6 +42,7 @@
 #endif
 
 static spinlock_t *hash_locks;
+/* FIXME: should we be using something more random here? */
 # define hash_lock_addr(slot) &hash_locks[(slot) & (HASH_LOCK_SZ - 1)]
 
 /** how many powers of 2's worth of buckets we use 
