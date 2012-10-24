@@ -56,7 +56,7 @@
 /** The number of clients to allow in the accept() queue.
  * TODO: This should also be an option set by a module argument.
  */
-#define SOCKET_BACKLOG 10
+#define SOCKET_BACKLOG 100
 
 /* Client States */
 
