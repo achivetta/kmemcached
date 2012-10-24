@@ -21,6 +21,7 @@
 #include <linux/types.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include <linux/spinlock.h>
 #include "storage.h"
 #include "hash.h"
 
@@ -37,6 +38,8 @@ static unsigned int hashpower = 18;
 #define hashsize(n) ((ub4)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
+rwlock_t storage_lock;
+
 /** Main hash table. */
 static item_t** primary_hashtable = 0;
 
@@ -50,6 +53,7 @@ static void update_cas(item_t* item){
 
 bool initialize_storage(void) 
 {
+    rwlock_init(&storage_lock);
     primary_hashtable = vzalloc(hashsize(hashpower) * sizeof(void *));
     if (! primary_hashtable) {
         printk(KERN_INFO "assoc.c: Failed to init hashtable.\n");
@@ -225,3 +229,4 @@ void flush(uint32_t when){
         primary_hashtable[i] = NULL;
     }
 }
+

@@ -2,6 +2,8 @@
 #ifndef STORAGE_H
 #define STORAGE_H
 
+#include <linux/spinlock.h>
+
 typedef struct item {
   uint64_t cas;
   char* key;
@@ -18,6 +20,8 @@ void shutdown_storage(void);
 
 item_t* create_item(const char* key, size_t nkey, const char* data,
                          size_t size, uint32_t flags, time_t exp);
+
+extern rwlock_t storage_lock;
 
 void put_item(item_t* item);
 item_t* get_item(const char* key, size_t nkey);

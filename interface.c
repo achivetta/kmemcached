@@ -8,7 +8,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kthread.h>
-#include <linux/smp_lock.h>
+#include <linux/spinlock.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/netdevice.h>
@@ -20,8 +20,6 @@
 #include "libmp/protocol_handler.h"
 #include "libmp/byteorder.h"
 #include "storage.h"
-
-static DEFINE_MUTEX(storage_lock);
 
 static protocol_binary_response_status add_handler(const void *cookie,
                                                    const void *key,
@@ -36,7 +34,7 @@ static protocol_binary_response_status add_handler(const void *cookie,
     item_t* item;
 
     (void)cookie;
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
 
     item = get_item(key, keylen);
 
@@ -53,7 +51,7 @@ static protocol_binary_response_status add_handler(const void *cookie,
         rval= PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
     }
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return rval;
 }
 
@@ -68,7 +66,7 @@ static protocol_binary_response_status append_handler(const void *cookie,
     protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
     item_t *item, *nitem;
 
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
     (void)cookie;
 
     item= get_item(key, keylen);
@@ -91,7 +89,7 @@ static protocol_binary_response_status append_handler(const void *cookie,
         release_item(nitem);
     }
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return rval;
 }
 
@@ -108,7 +106,7 @@ static protocol_binary_response_status decrement_handler(const void *cookie,
     item_t *item;
 
     (void)cookie;
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
 
     item = get_item(key, keylen);
 
@@ -134,7 +132,7 @@ static protocol_binary_response_status decrement_handler(const void *cookie,
         release_item(item);
     }
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return rval;
 }
 
@@ -145,14 +143,14 @@ static protocol_binary_response_status delete_handler(const void *cookie,
     protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
 
     (void)cookie;
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
 
     if (cas != 0) {
         item_t *item= get_item(key, keylen);
         if (item != NULL) {
             if (item->cas != cas) {
                 release_item(item);
-                mutex_unlock(&storage_lock);
+                write_unlock(&storage_lock);
                 return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
             }
             release_item(item);
@@ -163,7 +161,7 @@ static protocol_binary_response_status delete_handler(const void *cookie,
         rval= PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
     }
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return rval;
 }
 
@@ -172,9 +170,9 @@ static protocol_binary_response_status flush_handler(const void *cookie,
                                                      uint32_t when) {
 
     (void)cookie;
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
     flush(when);
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return PROTOCOL_BINARY_RESPONSE_SUCCESS;
 }
 
@@ -185,11 +183,11 @@ static protocol_binary_response_status get_handler(const void *cookie,
     protocol_binary_response_status rc;
     item_t *item;
 
-    mutex_lock(&storage_lock);
+    read_lock(&storage_lock);
     item = get_item(key, keylen);
 
     if (item == NULL) {
-        mutex_unlock(&storage_lock);
+        read_unlock(&storage_lock);
         return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
     }
 
@@ -198,7 +196,7 @@ static protocol_binary_response_status get_handler(const void *cookie,
                          item->cas);
     release_item(item);
 
-    mutex_unlock(&storage_lock);
+    read_unlock(&storage_lock);
     return rc;
 }
 
@@ -215,7 +213,7 @@ static protocol_binary_response_status increment_handler(const void *cookie,
     item_t *item;
     
     (void)cookie;
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
 
     item = get_item(key, keylen);
 
@@ -239,7 +237,7 @@ static protocol_binary_response_status increment_handler(const void *cookie,
         release_item(item);
     }
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
 
     return rval;
 }
@@ -262,7 +260,7 @@ static protocol_binary_response_status prepend_handler(const void *cookie,
     item_t *item;
 
     (void)cookie;
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
 
     item = get_item(key, keylen);
 
@@ -289,7 +287,7 @@ static protocol_binary_response_status prepend_handler(const void *cookie,
     if (nitem)
         release_item(nitem);
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return rval;
 }
 
@@ -310,7 +308,7 @@ static protocol_binary_response_status replace_handler(const void *cookie,
     protocol_binary_response_status rval= PROTOCOL_BINARY_RESPONSE_SUCCESS;
     item_t* item; 
 
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
     (void)cookie;
 
     item= get_item(key, keylen);
@@ -333,7 +331,7 @@ static protocol_binary_response_status replace_handler(const void *cookie,
         release_item(item);
     }
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return rval;
 }
 
@@ -350,14 +348,14 @@ static protocol_binary_response_status set_handler(const void *cookie,
     item_t* item;
 
     (void)cookie;
-    mutex_lock(&storage_lock);
+    write_lock(&storage_lock);
 
     if (cas != 0) {
         item_t* item= get_item(key, keylen);
         if (item != NULL && cas != item->cas) {
             /* Invalid CAS value */
             release_item(item);
-            mutex_unlock(&storage_lock);
+            write_unlock(&storage_lock);
             return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
         }
     }
@@ -372,7 +370,7 @@ static protocol_binary_response_status set_handler(const void *cookie,
         release_item(item);
     }
 
-    mutex_unlock(&storage_lock);
+    write_unlock(&storage_lock);
     return rval;
 }
 
