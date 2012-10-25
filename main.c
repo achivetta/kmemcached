@@ -322,9 +322,6 @@ static void close_listen_socket(void){
 }
 
 /** Close a client 
- *
- * FIXME: "It is permissible to free the struct work_struct from inside the
- * function that is called from it." (workqueue.c)
  */ 
 static void close_connection(client_t *client){
     printk(KERN_INFO MODULE_NAME": Closing connection.\n");
@@ -337,8 +334,8 @@ static void close_connection(client_t *client){
 
     memcached_protocol_client_destroy(client->libmp);
     list_del(&client->list);
-    // FIXME see TODO above. 
-    //kfree(client);  
+    cancel_work_sync(&client->work);
+    kfree(client);  
 }
 
 /** Load the module */
