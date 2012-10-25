@@ -390,10 +390,12 @@ void __exit kmemcached_exit(void){
     // FIXME do this client-by-client, see above
     flush_workqueue(workqueue);
 
-    list_for_each(p,&clients){
-        client_t *client = container_of(p,client_t,list);
+    while (!list_empty(&clients)) {
+        client_t *client = container_of(clients.next, client_t, list);
         close_connection(client);
     }
+
+    destroy_workqueue(workqueue);
 
     shutdown_storage();
 
