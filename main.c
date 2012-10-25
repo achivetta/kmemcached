@@ -56,7 +56,7 @@
 /** The number of clients to allow in the accept() queue.
  * TODO: This should also be an option set by a module argument.
  */
-#define SOCKET_BACKLOG 10
+#define SOCKET_BACKLOG 100
 
 /* Client States */
 
@@ -367,7 +367,11 @@ int __init kmemcached_init(void)
     }
 
     /* start kernel thread */
+#ifdef alloc_workqueue
     workqueue = alloc_workqueue(MODULE_NAME, WQ_NON_REENTRANT | WQ_FREEZEABLE, 0);
+#else
+    workqueue = create_freezeable_workqueue(MODULE_NAME);
+#endif
 
     return 0;
 }
@@ -386,10 +390,12 @@ void __exit kmemcached_exit(void){
     // FIXME do this client-by-client, see above
     flush_workqueue(workqueue);
 
-    list_for_each(p,&clients){
-        client_t *client = container_of(p,client_t,list);
+    while (!list_empty(&clients)) {
+        client_t *client = container_of(clients.next, client_t, list);
         close_connection(client);
     }
+
+    destroy_workqueue(workqueue);
 
     shutdown_storage();
 

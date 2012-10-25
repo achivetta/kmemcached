@@ -1,6 +1,8 @@
 #ifndef STORAGE_H
 #define STORAGE_H
 
+#include <linux/spinlock.h>
+
 typedef struct item {
   uint64_t cas;
   char* key;

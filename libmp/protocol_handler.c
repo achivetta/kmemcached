@@ -144,7 +144,7 @@ static bool drain_output(struct memcached_protocol_client_st *client)
       {
         return true;
       }
-      /* FIXME: check to see if we were interrupted, or other possibilities */
+      printk(KERN_INFO "libmp:drain_output send returned error %lu; assuming connection closed\n",len);
       return false;
     }
     else
