@@ -56,8 +56,6 @@ static const unsigned int hashpower = 18;
 #define hashsize(n) ((uint32_t)1<<(n))
 #define hashmask(n) (hashsize(n)-1)
 
-rwlock_t storage_lock;
-
 /** Main hash table. */
 static item_t** hashtable = 0;
 
