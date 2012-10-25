@@ -6,7 +6,6 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kthread.h>
-#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/netdevice.h>
@@ -144,7 +143,7 @@ static bool drain_output(struct memcached_protocol_client_st *client)
       {
         return true;
       }
-      printk(KERN_INFO "libmp:drain_output send returned error %lu; assuming connection closed\n",len);
+      printk(KERN_ERR "libmp:drain_output send returned error %lu; assuming connection closed\n", -len);
       return false;
     }
     else
@@ -407,7 +406,7 @@ memcached_protocol_event_t memcached_protocol_client_work(struct memcached_proto
     {
       if (len != -EWOULDBLOCK)
       {
-        printk(KERN_INFO "libmp: clien_work recv returned error %lu; assuming connection closed\n",len);
+        printk(KERN_ERR "libmp: clien_work recv returned error %lu; assuming connection closed\n", -len);
         client->error= -len;
         /* mark this client as terminated! */
         return MEMCACHED_PROTOCOL_ERROR_EVENT;
