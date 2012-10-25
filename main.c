@@ -381,7 +381,6 @@ int __init kmemcached_init(void)
  * individually as we close their connections.
  */
 void __exit kmemcached_exit(void){
-    struct list_head *p;
     close_listen_socket();
 
     // FIXME do this client-by-client, see above
