@@ -409,6 +409,7 @@ void __exit kmemcached_exit(void){
         listen_socket = NULL;
     }
 
+    rcu_barrier();
     printk(KERN_INFO MODULE_NAME": module unloaded\n");
 }
 
