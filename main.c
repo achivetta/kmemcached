@@ -350,9 +350,9 @@ int __init kmemcached_init(void)
 
     /* start kernel thread */
 #ifdef alloc_workqueue
-    workqueue = alloc_workqueue(MODULE_NAME, WQ_NON_REENTRANT | WQ_FREEZEABLE, 0);
+    workqueue = alloc_workqueue(MODULE_NAME, 0, 0);
 #else
-    workqueue = create_freezeable_workqueue(MODULE_NAME);
+    workqueue = create_workqueue(MODULE_NAME);
 #endif
 
     return 0;
