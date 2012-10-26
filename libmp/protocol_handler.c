@@ -359,70 +359,38 @@ void memcached_protocol_client_destroy(struct memcached_protocol_client_st *clie
 memcached_protocol_event_t memcached_protocol_client_work(struct memcached_protocol_client_st *client)
 {
   /* Try to send data and read from the socket */
-  bool more_data= true;
   memcached_protocol_event_t ret;
 
-  do
+  ssize_t len= client->root->recv(client,
+                                  client->sock,
+                                  client->root->input_buffer + client->input_buffer_offset,
+                                  client->root->input_buffer_size - client->input_buffer_offset);
+
+  if (len > 0)
   {
-    ssize_t len= client->root->recv(client,
-                                    client->sock,
-                                    client->root->input_buffer + client->input_buffer_offset,
-                                    client->root->input_buffer_size - client->input_buffer_offset);
+    void *endptr;
+    memcached_protocol_event_t events;
 
-    if (len > 0)
+    len += client->input_buffer_offset;
+    events = client->work(client, &len, &endptr);
+    if (events == MEMCACHED_PROTOCOL_ERROR_EVENT)
     {
-      void *endptr;
-      memcached_protocol_event_t events;
-
-      /* Do we have the complete packet? */
-      if (client->input_buffer_offset > 0)
-      {
-        memcpy(client->root->input_buffer, client->input_buffer,
-               client->input_buffer_offset);
-        len += (ssize_t)client->input_buffer_offset;
-
-        /* @todo use buffer-cache! */
-        kfree(client->input_buffer);
-        client->input_buffer_offset= 0;
-      }
-
-      events= client->work(client, &len, &endptr);
-      if (events == MEMCACHED_PROTOCOL_ERROR_EVENT)
-      {
-        return MEMCACHED_PROTOCOL_ERROR_EVENT;
-      }
-
-      if (len > 0)
-      {
-        /* save the data for later on */
-        /* @todo use buffer-cache */
-        client->input_buffer= kmalloc((size_t)len, GFP_KERNEL);
-        if (client->input_buffer == NULL)
-        {
-          client->error= ENOMEM;
-          return MEMCACHED_PROTOCOL_ERROR_EVENT;
-        }
-        memcpy(client->input_buffer, endptr, (size_t)len);
-        client->input_buffer_offset= (size_t)len;
-        more_data= false;
-      }
+      return MEMCACHED_PROTOCOL_ERROR_EVENT;
     }
-    else if (len == 0)
+    // save the data for later.
+    client->input_buffer_offset = len;
+    memmove(client->root->input_buffer, endptr, (size_t)len);
+  }
+  else if (len < 0)
+  {
+    if (len != -EWOULDBLOCK)
     {
-      break;
+      printk(KERN_ERR "libmp: clien_work recv returned error %lu; assuming connection closed\n", -len);
+      client->error= -len;
+      /* mark this client as terminated! */
+      return MEMCACHED_PROTOCOL_ERROR_EVENT;
     }
-    else
-    {
-      if (len != -EWOULDBLOCK)
-      {
-        printk(KERN_ERR "libmp: clien_work recv returned error %lu; assuming connection closed\n", -len);
-        client->error= -len;
-        /* mark this client as terminated! */
-        return MEMCACHED_PROTOCOL_ERROR_EVENT;
-      }
-      more_data= false;
-    }
-  } while (more_data);
+  }
 
   if (!drain_output(client))
   {
