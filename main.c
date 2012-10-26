@@ -328,7 +328,6 @@ static void close_connection(client_t *client){
 
     memcached_protocol_client_destroy(client->libmp);
     list_del(&client->list);
-    cancel_work_sync(&client->work);
     kfree(client);  
 }
 
