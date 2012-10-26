@@ -127,7 +127,7 @@ void memached_protocol_set_io_functions(memcached_protocol_st *instance,
  * @param sock the client socket
  * @return NULL if allocation fails, otherwise an instance
  */
-memcached_protocol_client_st *memcached_protocol_create_client(memcached_protocol_st *instance, memcached_socket_t sock);
+memcached_protocol_client_st *memcached_protocol_create_client(memcached_socket_t sock);
 
 /**
  * Destroy a client handle.

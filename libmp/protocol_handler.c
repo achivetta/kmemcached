@@ -329,21 +329,30 @@ void memcached_protocol_destroy_instance(struct memcached_protocol_st *instance)
   kfree(instance);
 }
 
-struct memcached_protocol_client_st *memcached_protocol_create_client(struct memcached_protocol_st *instance, memcached_socket_t sock)
+/** Our implementation of the memcached protocol callbacks */
+extern memcached_binary_protocol_callback_st interface_impl;
+
+struct memcached_protocol_client_st *memcached_protocol_create_client(memcached_socket_t sock)
 {
   struct memcached_protocol_client_st *ret= kcalloc(1, sizeof(*ret), GFP_KERNEL);
   if (ret != NULL)
   {
-    ret->root= instance;
+    ret->root = memcached_protocol_create_instance();
+    if (ret->root == NULL) {
+      kfree(ret);
+      return NULL;
+    }
+    memcached_binary_protocol_set_callbacks(ret->root, &interface_impl);
+    memcached_binary_protocol_set_pedantic(ret->root, false);
     ret->sock= sock;
     ret->work= determine_protocol;
   }
-
   return ret;
 }
 
 void memcached_protocol_client_destroy(struct memcached_protocol_client_st *client)
 {
+  kfree(client->root);
   kfree(client);
 }
 
