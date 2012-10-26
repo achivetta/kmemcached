@@ -367,25 +367,22 @@ int __init kmemcached_init(void)
  * individually as we close their connections.
  */
 void __exit kmemcached_exit(void){
+    // close listening socket.
     close_listen_socket();
 
+    // close clients.
     // FIXME do this client-by-client, see above
     flush_workqueue(workqueue);
-
+    destroy_workqueue(workqueue);
     while (!list_empty(&clients)) {
         client_t *client = container_of(clients.next, client_t, list);
         close_connection(client);
     }
 
-    destroy_workqueue(workqueue);
-
+    // close storage.
     shutdown_storage();
 
-    if (listen_socket != NULL) {
-        sock_release(listen_socket);
-        listen_socket = NULL;
-    }
-
+    // wait rcu.
     rcu_barrier();
     printk(KERN_INFO MODULE_NAME": module unloaded\n");
 }
