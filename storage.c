@@ -110,37 +110,22 @@ void shutdown_storage(void)
 item_t* create_item(const char* key, size_t nkey, const char* data,
                          size_t size, uint32_t flags, time_t exp)
 {
-    item_t* ret= kcalloc(1, sizeof(item_t), GFP_KERNEL);
+    item_t* ret= kcalloc(1, sizeof(item_t) + nkey + size - 1, GFP_KERNEL);
 
     if (ret != NULL){
-        ret->key= kmalloc(nkey, GFP_KERNEL);
-        if (size > 0)
-            ret->data= kmalloc(size, GFP_KERNEL);
-            /* TODO We need to do some investigation into the best way to store data.
-             * One option would be to use vmalloc, however vfree cannot be
-             * called from in an interrupt context which is how rcu_call is
-             * done.  kvmalloc()/kvfree() from AppArmor might be a possible solution
-             * but would need to be copy/pasted here.
-             */
-
-        if (ret->key == NULL || (size > 0 && ret->data == NULL)){
-            kfree(ret->key);
-            kfree(ret->data);
-            kfree(ret);
-            return NULL;
-        }
-
         memcpy(ret->key, key, nkey);
-        if (data != NULL)
+        if (data != NULL) {
+            ret->data = ret->key + nkey;
             memcpy(ret->data, data, size);
-
+        } else {
+            ret->data = NULL;
+        }
         ret->nkey= nkey;
         ret->size= size;
         ret->flags= flags;
         ret->exp= exp;
         atomic_set(&ret->refcount,1);
     }
-
     return ret;
 }
 
@@ -340,17 +325,10 @@ bool add_item(item_t* item)
 }
 
 /** Free the memory assocaited with an item. */
-static void free_item(item_t *item){
-    kfree(item->key);
-    kfree(item->data);
-    kfree(item);
-}
-
 static void rcu_free_item(struct rcu_head *head)
 {
-    free_item(container_of(head, item_t, rcu_head));
+    kfree(container_of(head, item_t, rcu_head));
 }
-
 
 /** Release the reference to an item. */
 void release_item(item_t* item)
