@@ -21,6 +21,7 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/spinlock.h>
+#include <linux/rcupdate.h>
 #include "storage.h"
 #include "hash.h"
 
