@@ -25,7 +25,6 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/workqueue.h>
-#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/netdevice.h>
@@ -147,6 +146,7 @@ static void callback_listen(struct sock *sk, int bytes){
  */
 static void callback_write_space(struct sock *sk){
     client_t *client = (client_t*) sk->sk_user_data;
+    if (!client) return;
 
     if (!test_bit(STATE_ACTIVE, &client->state))
         return;
@@ -158,6 +158,7 @@ static void callback_write_space(struct sock *sk){
 /** Callback for availability of data to read from a socket. */
 static void callback_data_ready(struct sock *sk, int bytes){
     client_t *client = (client_t*) sk->sk_user_data;
+    if (!client) return;
 
     if (!test_bit(STATE_ACTIVE, &client->state))
         return;
@@ -169,6 +170,7 @@ static void callback_data_ready(struct sock *sk, int bytes){
 /** Callback to indicate a state change on a socket, typically a disconnect. */
 static void callback_state_change(struct sock *sk){
     client_t *client = (client_t*) sk->sk_user_data;
+    if (!client) return;
 
     if (!test_bit(STATE_ACTIVE, &client->state))
         return;
@@ -298,7 +300,6 @@ static int open_listen_socket(void){
     }
 
     listen_socket->sk->sk_data_ready = callback_listen;
-
     printk(KERN_INFO MODULE_NAME": Started, listening on port %d.\n", DEFAULT_PORT);
     return 0;
 }
@@ -319,7 +320,7 @@ static void close_listen_socket(void){
  */ 
 static void close_connection(client_t *client){
     printk(KERN_INFO MODULE_NAME": Closing connection.\n");
-
+    client->sock->sk->sk_user_data = NULL;
     clear_bit(STATE_ACTIVE, &client->state);
     kernel_sock_shutdown(client->sock, SHUT_RDWR);
     sock_release(client->sock);

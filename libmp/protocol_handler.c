@@ -132,11 +132,13 @@ static bool drain_output(struct memcached_protocol_client_st *client)
   /* Do we have pending data to send? */
   while (client->output != NULL)
   {
+    if (client->sock == NULL) {
+        return false;
+    }
     len= client->root->send(client,
                             client->sock,
                             client->output->data + client->output->offset,
                             client->output->nbytes - client->output->offset);
-
     if (len < 0)
     {
       if (len == -EWOULDBLOCK)
