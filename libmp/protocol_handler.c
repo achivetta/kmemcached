@@ -406,3 +406,4 @@ memcached_protocol_event_t memcached_protocol_client_work(struct memcached_proto
 
   return ret;
 }
+/* vim: set ts=2 sts=2 sw=2 expandtab : */
