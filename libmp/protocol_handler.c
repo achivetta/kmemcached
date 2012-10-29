@@ -5,14 +5,9 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/kthread.h>
+#include <linux/net.h>
 #include <linux/errno.h>
 #include <linux/types.h>
-#include <linux/netdevice.h>
-#include <linux/ip.h>
-#include <linux/in.h>
-#include <linux/delay.h>
-#include <asm-generic/errno.h>
 
 /*
 ** **********************************************************************
@@ -36,34 +31,14 @@ static ssize_t default_recv(const void *cookie,
                             void *buf,
                             size_t len)
 {
-  struct msghdr msg;
-  struct iovec iov;
-  mm_segment_t oldfs;
-  int size = 0;
-
+  struct msghdr msg = {.msg_flags=MSG_DONTWAIT};
+  struct kvec iov;
   (void)cookie;
-
-  /* if there is no backing sock... */
-  if (sock->sk==NULL) return 0;
 
   iov.iov_base = buf;
   iov.iov_len = len;
 
-  msg.msg_flags = MSG_DONTWAIT;
-  msg.msg_name = NULL;
-  msg.msg_namelen = 0;
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
-  msg.msg_control = NULL;
-
-  oldfs = get_fs();
-  set_fs(KERNEL_DS);
-  size = sock_recvmsg(sock,&msg,len,msg.msg_flags);
-  set_fs(oldfs);
-
-  return size;
+  return kernel_recvmsg(sock, &msg, &iov, 1, len, msg.msg_flags);
 }
 
 // FIXME: This can be more efficint, look at net/ceph/messenger.c
@@ -83,38 +58,14 @@ static ssize_t default_send(const void *cookie,
                             const void *buf,
                             size_t len)
 {
-  struct msghdr msg;
-  struct iovec iov;
-  mm_segment_t oldfs;
-  int size = 0;
-
+  struct msghdr msg = {.msg_flags=MSG_DONTWAIT};
+  struct kvec iov;
   (void)cookie;
 
-  /* if there is no backing sock... 
-   * TODO: when would this be the case? */
-  if (sock->sk==NULL)
-      return 0;
-
-  /* Construct our scatter/gather list */
   iov.iov_base = (void*)buf;
   iov.iov_len = len;
 
-  msg.msg_flags = MSG_DONTWAIT;
-  msg.msg_name = NULL;
-  msg.msg_namelen  = 0;
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
-
-  /* TODO: what does this do? */
-  // http://mail.nl.linux.org/kernelnewbies/2005-12/msg00282.html
-  oldfs = get_fs();
-  set_fs(KERNEL_DS);
-  size = sock_sendmsg(sock,&msg,len);
-  set_fs(oldfs);
-
-  return size;
+  return kernel_sendmsg(sock, &msg, &iov, 1, len);
 }
 
 /**
