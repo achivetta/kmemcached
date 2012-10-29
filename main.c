@@ -27,11 +27,9 @@
 #include <linux/workqueue.h>
 #include <linux/errno.h>
 #include <linux/types.h>
-#include <linux/netdevice.h>
-#include <linux/ip.h>
-#include <linux/in.h>
-#include <linux/delay.h>
+#include <linux/net.h>
 #include <net/sock.h>
+#include <net/tcp.h>
 #include <net/tcp_states.h>
 
 #include "libmp/protocol_handler.h"
@@ -190,6 +188,7 @@ static void listen_work(struct work_struct *work){
 
     while (1){
         int err = 0;
+        int yes = 1;
         client_t *client = NULL;
         struct socket *new_sock = NULL;
 
@@ -198,6 +197,7 @@ static void listen_work(struct work_struct *work){
                 printk(KERN_INFO MODULE_NAME": Could not accept incoming connection, error = %d\n",-err);
             break;
         } 
+        kernel_setsockopt(new_sock, SOL_TCP, TCP_NODELAY, &yes, sizeof(yes));
 
         if (!(client = kmalloc(sizeof(client_t), GFP_KERNEL))){
             printk(KERN_INFO MODULE_NAME": Unable to allocate space for new client_t.\n");
