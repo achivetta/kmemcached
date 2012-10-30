@@ -37,11 +37,10 @@
 #include "storage.h"
 
 /** The port we listen on.
- *
- * TODO: This should be configurable as a parameter passed to the module at load
- * time.  Currently, it must be set here at compile time.
  */
 #define DEFAULT_PORT 11212
+static ushort port = DEFAULT_PORT;
+module_param(port, ushort, S_IRUGO);
 
 /** The module name.
  *
@@ -51,7 +50,6 @@
 #define MODULE_NAME "kmemcached"
 
 /** The number of clients to allow in the accept() queue.
- * TODO: This should also be an option set by a module argument.
  */
 #define SOCKET_BACKLOG 100
 
@@ -286,7 +284,7 @@ static int open_listen_socket(void){
     memset(&listen_address, 0, sizeof(struct sockaddr_in));
     listen_address.sin_family      = AF_INET;
     listen_address.sin_addr.s_addr      = htonl(INADDR_ANY);
-    listen_address.sin_port      = htons(DEFAULT_PORT);
+    listen_address.sin_port      = htons(port);
 
     if ( (err = kernel_bind(listen_socket, (struct sockaddr *)&listen_address, sizeof(struct sockaddr_in) ) ) < 0) 
     {
@@ -300,7 +298,7 @@ static int open_listen_socket(void){
     }
 
     listen_socket->sk->sk_data_ready = callback_listen;
-    printk(KERN_INFO MODULE_NAME": Started, listening on port %d.\n", DEFAULT_PORT);
+    printk(KERN_INFO MODULE_NAME": Started, listening on port %d.\n", port);
     return 0;
 }
 
