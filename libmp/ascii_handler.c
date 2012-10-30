@@ -5,7 +5,6 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kthread.h>
-#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/netdevice.h>
@@ -131,13 +130,11 @@ ascii_get_response_handler(const void *cookie,
                            uint64_t cas)
 {
   memcached_protocol_client_st *client= (void*)cookie;
-  char buffer[300];
+  char buffer[60] = "VALUE ";
   const char *source= key;
   char *dest= buffer + 6;
   int x;
   size_t used;
-
-  strcpy(buffer, "VALUE ");
 
   for (x = 0; x < keylen; ++x)
   {

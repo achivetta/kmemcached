@@ -5,15 +5,9 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
-#include <linux/kthread.h>
-#include <linux/smp_lock.h>
+#include <linux/net.h>
 #include <linux/errno.h>
 #include <linux/types.h>
-#include <linux/netdevice.h>
-#include <linux/ip.h>
-#include <linux/in.h>
-#include <linux/delay.h>
-#include <asm-generic/errno.h>
 
 /*
 ** **********************************************************************
@@ -37,34 +31,14 @@ static ssize_t default_recv(const void *cookie,
                             void *buf,
                             size_t len)
 {
-  struct msghdr msg;
-  struct iovec iov;
-  mm_segment_t oldfs;
-  int size = 0;
-
+  struct msghdr msg = {.msg_flags=MSG_DONTWAIT};
+  struct kvec iov;
   (void)cookie;
-
-  /* if there is no backing sock... */
-  if (sock->sk==NULL) return 0;
 
   iov.iov_base = buf;
   iov.iov_len = len;
 
-  msg.msg_flags = MSG_DONTWAIT;
-  msg.msg_name = NULL;
-  msg.msg_namelen = 0;
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
-  msg.msg_control = NULL;
-
-  oldfs = get_fs();
-  set_fs(KERNEL_DS);
-  size = sock_recvmsg(sock,&msg,len,msg.msg_flags);
-  set_fs(oldfs);
-
-  return size;
+  return kernel_recvmsg(sock, &msg, &iov, 1, len, msg.msg_flags);
 }
 
 // FIXME: This can be more efficint, look at net/ceph/messenger.c
@@ -84,38 +58,14 @@ static ssize_t default_send(const void *cookie,
                             const void *buf,
                             size_t len)
 {
-  struct msghdr msg;
-  struct iovec iov;
-  mm_segment_t oldfs;
-  int size = 0;
-
+  struct msghdr msg = {.msg_flags=MSG_DONTWAIT};
+  struct kvec iov;
   (void)cookie;
 
-  /* if there is no backing sock... 
-   * TODO: when would this be the case? */
-  if (sock->sk==NULL)
-      return 0;
-
-  /* Construct our scatter/gather list */
   iov.iov_base = (void*)buf;
   iov.iov_len = len;
 
-  msg.msg_flags = MSG_DONTWAIT;
-  msg.msg_name = NULL;
-  msg.msg_namelen  = 0;
-  msg.msg_control = NULL;
-  msg.msg_controllen = 0;
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
-
-  /* TODO: what does this do? */
-  // http://mail.nl.linux.org/kernelnewbies/2005-12/msg00282.html
-  oldfs = get_fs();
-  set_fs(KERNEL_DS);
-  size = sock_sendmsg(sock,&msg,len);
-  set_fs(oldfs);
-
-  return size;
+  return kernel_sendmsg(sock, &msg, &iov, 1, len);
 }
 
 /**
@@ -133,18 +83,20 @@ static bool drain_output(struct memcached_protocol_client_st *client)
   /* Do we have pending data to send? */
   while (client->output != NULL)
   {
+    if (client->sock == NULL) {
+        return false;
+    }
     len= client->root->send(client,
                             client->sock,
                             client->output->data + client->output->offset,
                             client->output->nbytes - client->output->offset);
-
     if (len < 0)
     {
       if (len == -EWOULDBLOCK)
       {
         return true;
       }
-      /* FIXME: check to see if we were interrupted, or other possibilities */
+      printk(KERN_ERR "libmp:drain_output send returned error %lu; assuming connection closed\n", -len);
       return false;
     }
     else
@@ -330,91 +282,68 @@ void memcached_protocol_destroy_instance(struct memcached_protocol_st *instance)
   kfree(instance);
 }
 
-struct memcached_protocol_client_st *memcached_protocol_create_client(struct memcached_protocol_st *instance, memcached_socket_t sock)
+/** Our implementation of the memcached protocol callbacks */
+extern memcached_binary_protocol_callback_st interface_impl;
+
+struct memcached_protocol_client_st *memcached_protocol_create_client(memcached_socket_t sock)
 {
   struct memcached_protocol_client_st *ret= kcalloc(1, sizeof(*ret), GFP_KERNEL);
   if (ret != NULL)
   {
-    ret->root= instance;
+    ret->root = memcached_protocol_create_instance();
+    if (ret->root == NULL) {
+      kfree(ret);
+      return NULL;
+    }
+    memcached_binary_protocol_set_callbacks(ret->root, &interface_impl);
+    memcached_binary_protocol_set_pedantic(ret->root, false);
     ret->sock= sock;
     ret->work= determine_protocol;
   }
-
   return ret;
 }
 
 void memcached_protocol_client_destroy(struct memcached_protocol_client_st *client)
 {
+  kfree(client->root);
   kfree(client);
 }
 
 memcached_protocol_event_t memcached_protocol_client_work(struct memcached_protocol_client_st *client)
 {
   /* Try to send data and read from the socket */
-  bool more_data= true;
   memcached_protocol_event_t ret;
 
-  do
+  ssize_t len= client->root->recv(client,
+                                  client->sock,
+                                  client->root->input_buffer + client->input_buffer_offset,
+                                  client->root->input_buffer_size - client->input_buffer_offset);
+
+  if (len > 0)
   {
-    ssize_t len= client->root->recv(client,
-                                    client->sock,
-                                    client->root->input_buffer + client->input_buffer_offset,
-                                    client->root->input_buffer_size - client->input_buffer_offset);
+    void *endptr;
+    memcached_protocol_event_t events;
 
-    if (len > 0)
+    len += client->input_buffer_offset;
+    events = client->work(client, &len, &endptr);
+    if (events == MEMCACHED_PROTOCOL_ERROR_EVENT)
     {
-      void *endptr;
-      memcached_protocol_event_t events;
-
-      /* Do we have the complete packet? */
-      if (client->input_buffer_offset > 0)
-      {
-        memcpy(client->root->input_buffer, client->input_buffer,
-               client->input_buffer_offset);
-        len += (ssize_t)client->input_buffer_offset;
-
-        /* @todo use buffer-cache! */
-        kfree(client->input_buffer);
-        client->input_buffer_offset= 0;
-      }
-
-      events= client->work(client, &len, &endptr);
-      if (events == MEMCACHED_PROTOCOL_ERROR_EVENT)
-      {
-        return MEMCACHED_PROTOCOL_ERROR_EVENT;
-      }
-
-      if (len > 0)
-      {
-        /* save the data for later on */
-        /* @todo use buffer-cache */
-        client->input_buffer= kmalloc((size_t)len, GFP_KERNEL);
-        if (client->input_buffer == NULL)
-        {
-          client->error= ENOMEM;
-          return MEMCACHED_PROTOCOL_ERROR_EVENT;
-        }
-        memcpy(client->input_buffer, endptr, (size_t)len);
-        client->input_buffer_offset= (size_t)len;
-        more_data= false;
-      }
+      return MEMCACHED_PROTOCOL_ERROR_EVENT;
     }
-    else if (len == 0)
+    // save the data for later.
+    client->input_buffer_offset = len;
+    memmove(client->root->input_buffer, endptr, (size_t)len);
+  }
+  else if (len < 0)
+  {
+    if (len != -EWOULDBLOCK)
     {
-      break;
+      printk(KERN_ERR "libmp: clien_work recv returned error %lu; assuming connection closed\n", -len);
+      client->error= -len;
+      /* mark this client as terminated! */
+      return MEMCACHED_PROTOCOL_ERROR_EVENT;
     }
-    else
-    {
-      if (len != -EWOULDBLOCK)
-      {
-        printk(KERN_INFO "libmp: clien_work recv returned error %lu; assuming connection closed\n",len);
-        client->error= -len;
-        /* mark this client as terminated! */
-        return MEMCACHED_PROTOCOL_ERROR_EVENT;
-      }
-      more_data= false;
-    }
-  } while (more_data);
+  }
 
   if (!drain_output(client))
   {
@@ -428,3 +357,4 @@ memcached_protocol_event_t memcached_protocol_client_work(struct memcached_proto
 
   return ret;
 }
+/* vim: set ts=2 sts=2 sw=2 expandtab : */

@@ -1,9 +1,10 @@
 #ifndef STORAGE_H
 #define STORAGE_H
 
+#include <linux/spinlock.h>
+
 typedef struct item {
   uint64_t cas;
-  char* key;
   size_t nkey;
   char* data;
   size_t size;
@@ -12,6 +13,7 @@ typedef struct item {
   atomic_t refcount;
   struct rcu_head rcu_head;
   struct item* h_next;
+  char key[1];
 } item_t;
 
 bool initialize_storage(void);
