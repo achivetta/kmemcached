@@ -6,6 +6,7 @@
 *.a
 *.s
 *.ko
+*.ko.unsigned
 *.so
 *.so.dbg
 *.mod.c

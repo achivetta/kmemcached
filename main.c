@@ -25,14 +25,11 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/workqueue.h>
-#include <linux/smp_lock.h>
 #include <linux/errno.h>
 #include <linux/types.h>
-#include <linux/netdevice.h>
-#include <linux/ip.h>
-#include <linux/in.h>
-#include <linux/delay.h>
+#include <linux/net.h>
 #include <net/sock.h>
+#include <net/tcp.h>
 #include <net/tcp_states.h>
 
 #include "libmp/protocol_handler.h"
@@ -40,11 +37,10 @@
 #include "storage.h"
 
 /** The port we listen on.
- *
- * TODO: This should be configurable as a parameter passed to the module at load
- * time.  Currently, it must be set here at compile time.
  */
 #define DEFAULT_PORT 11212
+static ushort port = DEFAULT_PORT;
+module_param(port, ushort, S_IRUGO);
 
 /** The module name.
  *
@@ -54,9 +50,8 @@
 #define MODULE_NAME "kmemcached"
 
 /** The number of clients to allow in the accept() queue.
- * TODO: This should also be an option set by a module argument.
  */
-#define SOCKET_BACKLOG 10
+#define SOCKET_BACKLOG 100
 
 /* Client States */
 
@@ -81,9 +76,6 @@
  * client's connection should be closed.
  */
 #define STATE_CLOSE 3
-
-/** Our implementation of the memcached protocol callbacks */
-extern memcached_binary_protocol_callback_st interface_impl;
 
 /** Client data structure. */
 typedef struct client_t{
@@ -127,9 +119,6 @@ DECLARE_WORK(listen_job,listen_work);
  */
 struct socket *listen_socket;
 
-/** libmemcachedprotocol handle */
-struct memcached_protocol_st *protocol_handle;
-
 /** Equeue a client on the workqueue */
 static void queue_client(client_t *client){
     queue_work(workqueue, &(client->work));
@@ -153,6 +142,7 @@ static void callback_listen(struct sock *sk, int bytes){
  */
 static void callback_write_space(struct sock *sk){
     client_t *client = (client_t*) sk->sk_user_data;
+    if (!client) return;
 
     if (!test_bit(STATE_ACTIVE, &client->state))
         return;
@@ -164,6 +154,7 @@ static void callback_write_space(struct sock *sk){
 /** Callback for availability of data to read from a socket. */
 static void callback_data_ready(struct sock *sk, int bytes){
     client_t *client = (client_t*) sk->sk_user_data;
+    if (!client) return;
 
     if (!test_bit(STATE_ACTIVE, &client->state))
         return;
@@ -175,6 +166,7 @@ static void callback_data_ready(struct sock *sk, int bytes){
 /** Callback to indicate a state change on a socket, typically a disconnect. */
 static void callback_state_change(struct sock *sk){
     client_t *client = (client_t*) sk->sk_user_data;
+    if (!client) return;
 
     if (!test_bit(STATE_ACTIVE, &client->state))
         return;
@@ -194,6 +186,7 @@ static void listen_work(struct work_struct *work){
 
     while (1){
         int err = 0;
+        int yes = 1;
         client_t *client = NULL;
         struct socket *new_sock = NULL;
 
@@ -202,6 +195,7 @@ static void listen_work(struct work_struct *work){
                 printk(KERN_INFO MODULE_NAME": Could not accept incoming connection, error = %d\n",-err);
             break;
         } 
+        kernel_setsockopt(new_sock, SOL_TCP, TCP_NODELAY, &yes, sizeof(yes));
 
         if (!(client = kmalloc(sizeof(client_t), GFP_KERNEL))){
             printk(KERN_INFO MODULE_NAME": Unable to allocate space for new client_t.\n");
@@ -217,7 +211,7 @@ static void listen_work(struct work_struct *work){
         client->state = 0;
         set_bit(STATE_ACTIVE, &client->state);
 
-        client->libmp = memcached_protocol_create_client(protocol_handle, client->sock);
+        client->libmp = memcached_protocol_create_client(client->sock);
         if (client->libmp == NULL){
             printk(KERN_INFO MODULE_NAME": Could not allocate memory for memcached_protocol_client_st.");
             sock_release(client->sock);
@@ -290,7 +284,7 @@ static int open_listen_socket(void){
     memset(&listen_address, 0, sizeof(struct sockaddr_in));
     listen_address.sin_family      = AF_INET;
     listen_address.sin_addr.s_addr      = htonl(INADDR_ANY);
-    listen_address.sin_port      = htons(DEFAULT_PORT);
+    listen_address.sin_port      = htons(port);
 
     if ( (err = kernel_bind(listen_socket, (struct sockaddr *)&listen_address, sizeof(struct sockaddr_in) ) ) < 0) 
     {
@@ -304,8 +298,7 @@ static int open_listen_socket(void){
     }
 
     listen_socket->sk->sk_data_ready = callback_listen;
-
-    printk(KERN_INFO MODULE_NAME": Started, listening on port %d.\n", DEFAULT_PORT);
+    printk(KERN_INFO MODULE_NAME": Started, listening on port %d.\n", port);
     return 0;
 }
 
@@ -322,13 +315,10 @@ static void close_listen_socket(void){
 }
 
 /** Close a client 
- *
- * FIXME: "It is permissible to free the struct work_struct from inside the
- * function that is called from it." (workqueue.c)
  */ 
 static void close_connection(client_t *client){
     printk(KERN_INFO MODULE_NAME": Closing connection.\n");
-
+    client->sock->sk->sk_user_data = NULL;
     clear_bit(STATE_ACTIVE, &client->state);
     kernel_sock_shutdown(client->sock, SHUT_RDWR);
     sock_release(client->sock);
@@ -337,8 +327,7 @@ static void close_connection(client_t *client){
 
     memcached_protocol_client_destroy(client->libmp);
     list_del(&client->list);
-    // FIXME see TODO above. 
-    //kfree(client);  
+    kfree(client);  
 }
 
 /** Load the module */
@@ -352,14 +341,6 @@ int __init kmemcached_init(void)
         return -ENXIO; // FIXME use better error code
     }
 
-    /* setup protocol library */
-    if ((protocol_handle = memcached_protocol_create_instance()) == NULL){
-        printk(KERN_INFO MODULE_NAME": unable to allocate protocol handle\n");
-        return -ENOMEM;
-    }
-    memcached_binary_protocol_set_callbacks(protocol_handle,&interface_impl);
-    memcached_binary_protocol_set_pedantic(protocol_handle, false);
-
     if (initialize_storage() == false){
         printk(KERN_INFO MODULE_NAME": unable to initialize storage engine\n");
         return -ENOMEM;
@@ -367,7 +348,11 @@ int __init kmemcached_init(void)
     }
 
     /* start kernel thread */
-    workqueue = alloc_workqueue(MODULE_NAME, WQ_NON_REENTRANT | WQ_FREEZEABLE, 0);
+#ifdef alloc_workqueue
+    workqueue = alloc_workqueue(MODULE_NAME, 0, 0);
+#else
+    workqueue = create_workqueue(MODULE_NAME);
+#endif
 
     return 0;
 }
@@ -380,29 +365,23 @@ int __init kmemcached_init(void)
  * individually as we close their connections.
  */
 void __exit kmemcached_exit(void){
-    struct list_head *p;
+    // close listening socket.
     close_listen_socket();
 
+    // close clients.
     // FIXME do this client-by-client, see above
     flush_workqueue(workqueue);
-
-    list_for_each(p,&clients){
-        client_t *client = container_of(p,client_t,list);
+    destroy_workqueue(workqueue);
+    while (!list_empty(&clients)) {
+        client_t *client = container_of(clients.next, client_t, list);
         close_connection(client);
     }
 
+    // close storage.
     shutdown_storage();
 
-    if (protocol_handle != NULL){
-        memcached_protocol_destroy_instance(protocol_handle);
-        protocol_handle = NULL;
-    }
-
-    if (listen_socket != NULL) {
-        sock_release(listen_socket);
-        listen_socket = NULL;
-    }
-
+    // wait rcu.
+    rcu_barrier();
     printk(KERN_INFO MODULE_NAME": module unloaded\n");
 }
 

@@ -8,7 +8,7 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/kthread.h>
-#include <linux/smp_lock.h>
+#include <linux/spinlock.h>
 #include <linux/errno.h>
 #include <linux/types.h>
 #include <linux/netdevice.h>
@@ -57,7 +57,7 @@ static protocol_binary_response_status append_handler(const void *cookie,
 {
     (void)cookie;
 
-    while (1){
+    while (1) {
         item_t *item, *nitem;
         uint64_t replace_cas;
 
@@ -65,15 +65,15 @@ static protocol_binary_response_status append_handler(const void *cookie,
 
         if (item == NULL)
             return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-        
+
         if (cas != 0 && cas != item->cas){
             release_item(item);
             return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
         }
         replace_cas = item->cas;
-        
+
         if ((nitem= create_item(key, keylen, NULL, item->size + vallen,
-                                       item->flags, item->exp)) == NULL) {
+                        item->flags, item->exp)) == NULL) {
             release_item(item);
             return PROTOCOL_BINARY_RESPONSE_ENOMEM;
         }
@@ -109,8 +109,8 @@ static protocol_binary_response_status decrement_handler(const void *cookie,
                                                          uint64_t initial,
                                                          uint32_t expiration,
                                                          uint64_t *result,
-                                                         uint64_t *result_cas) {
-
+                                                         uint64_t *result_cas)
+{
     // FIXME: How should this behave if the data is longer that 8 bytes? Shorter?
     // FIXME: "If the counter does not exist ... If the expiration value is all
     // one-bits (0xffffffff), the operation will fail with NOT_FOUND."
@@ -161,30 +161,32 @@ static protocol_binary_response_status decrement_handler(const void *cookie,
 static protocol_binary_response_status delete_handler(const void *cookie,
                                                       const void *key,
                                                       uint16_t keylen,
-                                                      uint64_t cas) {
+                                                      uint64_t cas)
+{
     (void)cookie;
 
     switch (delete_item(key,keylen,cas)){
-        case 0: return PROTOCOL_BINARY_RESPONSE_SUCCESS;
-        case -1: return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-        case -2: return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-        default: BUG(); return 0;
+    case 0: return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    case -1: return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    case -2: return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+    default: BUG(); return 0;
     }
 }
 
 
 static protocol_binary_response_status flush_handler(const void *cookie,
-                                                     uint32_t when) {
-
+        uint32_t when)
+{
     (void)cookie;
     flush(when);
     return PROTOCOL_BINARY_RESPONSE_SUCCESS;
 }
 
 static protocol_binary_response_status get_handler(const void *cookie,
-                                                   const void *key,
-                                                   uint16_t keylen,
-                                                   memcached_binary_protocol_get_response_handler response_handler) {
+        const void *key,
+        uint16_t keylen,
+        memcached_binary_protocol_get_response_handler response_handler)
+{
     protocol_binary_response_status rc;
     item_t *item = get_item(key, keylen);
 
@@ -193,7 +195,7 @@ static protocol_binary_response_status get_handler(const void *cookie,
         return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
 
     rc= response_handler(cookie, key, (uint16_t)keylen, item->data,
-                         (uint32_t)item->size, item->flags, item->cas);
+            (uint32_t)item->size, item->flags, item->cas);
 
     release_item(item);
 
@@ -207,7 +209,8 @@ static protocol_binary_response_status increment_handler(const void *cookie,
                                                          uint64_t initial,
                                                          uint32_t expiration,
                                                          uint64_t *result,
-                                                         uint64_t *result_cas) {
+                                                         uint64_t *result_cas)
+{
     // FIXME: How should this behave if the data is longer that 8 bytes? Shorter?
     // FIXME: "If the counter does not exist ... If the expiration value is all
     // one-bits (0xffffffff), the operation will fail with NOT_FOUND."
@@ -237,9 +240,9 @@ static protocol_binary_response_status increment_handler(const void *cookie,
         }
 
         if ((cas && (replace_item(item,cas) == 0)) || add_item(item)){
-                *result_cas= item->cas;
-                release_item(item);
-                return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+            *result_cas= item->cas;
+            release_item(item);
+            return PROTOCOL_BINARY_RESPONSE_SUCCESS;
         }
 
         release_item(item);
@@ -251,9 +254,10 @@ static protocol_binary_response_status increment_handler(const void *cookie,
     }
 }
 
-static protocol_binary_response_status noop_handler(const void *cookie) {
-  (void)cookie;
-  return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+static protocol_binary_response_status noop_handler(const void *cookie)
+{
+    (void)cookie;
+    return PROTOCOL_BINARY_RESPONSE_SUCCESS;
 }
 
 static protocol_binary_response_status prepend_handler(const void *cookie,
@@ -262,7 +266,8 @@ static protocol_binary_response_status prepend_handler(const void *cookie,
                                                        const void* val,
                                                        uint32_t vallen,
                                                        uint64_t cas,
-                                                       uint64_t *result_cas) {
+                                                       uint64_t *result_cas)
+{
     while (1){
         item_t *item, *nitem;
         uint64_t replace_cas;
@@ -271,15 +276,15 @@ static protocol_binary_response_status prepend_handler(const void *cookie,
 
         if (item == NULL)
             return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-        
+
         if (cas != 0 && cas != item->cas){
             release_item(item);
             return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
         }
         replace_cas = item->cas;
-        
+
         if ((nitem= create_item(key, keylen, NULL, item->size + vallen,
-                                       item->flags, item->exp)) == NULL) {
+                        item->flags, item->exp)) == NULL) {
             release_item(item);
             return PROTOCOL_BINARY_RESPONSE_ENOMEM;
         }
@@ -308,9 +313,10 @@ static protocol_binary_response_status prepend_handler(const void *cookie,
     }
 }
 
-static protocol_binary_response_status quit_handler(const void *cookie) {
-  (void)cookie;
-  return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+static protocol_binary_response_status quit_handler(const void *cookie)
+{
+    (void)cookie;
+    return PROTOCOL_BINARY_RESPONSE_SUCCESS;
 }
 
 static protocol_binary_response_status replace_handler(const void *cookie,
@@ -321,7 +327,8 @@ static protocol_binary_response_status replace_handler(const void *cookie,
                                                        uint32_t flags,
                                                        uint32_t exptime,
                                                        uint64_t cas,
-                                                       uint64_t *result_cas) {
+                                                       uint64_t *result_cas)
+{
     item_t* item; 
     int ret;
     (void)cookie;
@@ -335,10 +342,10 @@ static protocol_binary_response_status replace_handler(const void *cookie,
     release_item(item);
 
     switch (ret){
-        case 0: return PROTOCOL_BINARY_RESPONSE_SUCCESS;
-        case -1: return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-        case -2: return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-        default: BUG(); return 0;
+    case 0: return PROTOCOL_BINARY_RESPONSE_SUCCESS;
+    case -1: return PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+    case -2: return PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+    default: BUG(); return 0;
     }
 }
 
@@ -350,14 +357,15 @@ static protocol_binary_response_status set_handler(const void *cookie,
                                                    uint32_t flags,
                                                    uint32_t exptime,
                                                    uint64_t cas,
-                                                   uint64_t *result_cas) {
+                                                   uint64_t *result_cas)
+{
     item_t* item;
 
     (void)cookie;
 
     if (cas != 0)
         return replace_handler(cookie, key, keylen, data, datalen, flags,
-                               exptime, cas, result_cas);
+                exptime, cas, result_cas);
 
     item= create_item(key, keylen, data, datalen, flags, (time_t)exptime);
     if (item == 0)
@@ -371,37 +379,39 @@ static protocol_binary_response_status set_handler(const void *cookie,
 }
 
 static protocol_binary_response_status stat_handler(const void *cookie,
-                                                    const void *key,
-                                                    uint16_t keylen,
-                                                    memcached_binary_protocol_stat_response_handler response_handler) {
-  (void)key;
-  (void)keylen;
-  /* Just return an empty packet */
-  return response_handler(cookie, NULL, 0, NULL, 0);
+        const void *key,
+        uint16_t keylen,
+        memcached_binary_protocol_stat_response_handler response_handler)
+{
+    (void)key;
+    (void)keylen;
+    /* Just return an empty packet */
+    return response_handler(cookie, NULL, 0, NULL, 0);
 }
 
 static protocol_binary_response_status version_handler(const void *cookie,
-                                                       memcached_binary_protocol_version_response_handler response_handler) {
-  const char *version= "0.1.1";
-  return response_handler(cookie, version, (uint32_t)strlen(version));
+        memcached_binary_protocol_version_response_handler response_handler)
+{
+    const char *version= "0.1.1";
+    return response_handler(cookie, version, (uint32_t)strlen(version));
 }
 
 memcached_binary_protocol_callback_st interface_impl= {
-  .interface_version= MEMCACHED_PROTOCOL_HANDLER_V1,
-  .interface.v1= {
-    .add= add_handler,
-    .append= append_handler,
-    .decrement= decrement_handler,
-    .delete= delete_handler,
-    .flush= flush_handler,
-    .get= get_handler,
-    .increment= increment_handler,
-    .noop= noop_handler,
-    .prepend= prepend_handler,
-    .quit= quit_handler,
-    .replace= replace_handler,
-    .set= set_handler,
-    .stat= stat_handler,
-    .version= version_handler
-  }
+    .interface_version= MEMCACHED_PROTOCOL_HANDLER_V1,
+    .interface.v1= {
+        .add= add_handler,
+        .append= append_handler,
+        .decrement= decrement_handler,
+        .delete= delete_handler,
+        .flush= flush_handler,
+        .get= get_handler,
+        .increment= increment_handler,
+        .noop= noop_handler,
+        .prepend= prepend_handler,
+        .quit= quit_handler,
+        .replace= replace_handler,
+        .set= set_handler,
+        .stat= stat_handler,
+        .version= version_handler
+    }
 };
